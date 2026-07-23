@@ -127,6 +127,6 @@ DESIGN.md             방법론 전문과 설계 근거
 existing_benches.md   조사한 벤치마크 40여 개 한 줄 정리
 ```
 
-##벤치마킹한 소스들
+## 벤치마킹한 소스들
 
 롤플레이 형식과 루브릭+Elo 이중 채점, 편향 통제 수법은 EQ-Bench 3에서, "지식과 적용은 별개"라는 설계 원리와 명시/비명시 쌍은 Nunchi-Bench에서, 심사자를 의심하라는 교훈은 KUDGE에서, 경어를 독립 채점 기준으로 두는 발상은 RULER/VERSE에서, 언어 일관성 검사는 HRET에서, 맥락 의존 반어라는 문항 유형은 KoCoSa에서 가져왔습니다. LitBench와 LongJudgeBench는 LLM 심사자가 어디서 넘어지는지 미리 알려줬고요. 전체 목록은 [`existing_benches.md`](./existing_benches.md)에 있습니다.
