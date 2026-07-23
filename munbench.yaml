@@ -1,0 +1,45 @@
+# MunBench harness configuration (example).
+# Copy/edit as needed. All API keys are read from environment variables by
+# litellm's provider convention (OPENAI_API_KEY, GEMINI_API_KEY,
+# ANTHROPIC_API_KEY, etc.) — never put keys in this file.
+
+# litellm model ids for the models under test (i.e. the models being benchmarked).
+models:
+  - gpt-5
+  - gemini/gemini-2.5-pro
+  - anthropic/claude-sonnet-5
+
+# Ensemble of judges (cross-family, to dilute self/family bias). Kept
+# separate from `models` even if there's overlap.
+judges:
+  - gpt-5
+  - gemini/gemini-2.5-pro
+  - anthropic/claude-sonnet-5
+
+# Each judge scores each sample this many times; report mean/std for
+# repeatability (see DESIGN.md "Report repeatability").
+rubric_iterations: 3
+
+pairwise:
+  enabled: true
+  truncate_chars: 4000
+  # Anchor models are pinned to a fixed Elo rating (see elo.py) and every
+  # tested model is compared against every anchor.
+  anchors:
+    - gpt-5
+    - anthropic/claude-sonnet-5
+  # Round-robin comparisons among tested models are capped so pairwise
+  # judging cost doesn't blow up as more models are added.
+  max_comparisons_per_model: 40
+
+temperature: 1.0
+max_tokens: 2048
+
+# Bounded concurrency for async generation/judging calls.
+concurrency: 8
+max_retries: 3
+retry_backoff_seconds: 2.0
+
+paths:
+  data_dir: data
+  results_dir: results
