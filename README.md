@@ -1,5 +1,7 @@
 # MunBench (문벤치)
 
+**English** | [한국어](./README.ko.md)
+
 **Can your model read the room in Korean?**
 
 MunBench is a benchmark for what almost no benchmark measures: whether an LLM can actually *write* in Korean — with emotional intelligence, literary craft, and the cultural instincts that separate a fluent model from one that merely knows the grammar. Not "pick the right answer about Korean culture." Actually navigate a 회식-politics minefield, write a poem about loss without saying 슬프다, and know when "아니야 괜찮아" means anything but 괜찮아.
