@@ -95,6 +95,7 @@ def build_comparison_pairs(
     anchors: list[str],
     gen_index: dict[str, dict[GenKey, GenerationRecord]],
     max_comparisons_per_model: int,
+    max_anchor_items: int | None = None,
 ) -> list[PairSpec]:
     anchor_set = set(anchors)
     pairs: list[PairSpec] = []
@@ -110,6 +111,10 @@ def build_comparison_pairs(
             if m == a or m not in gen_index or a not in gen_index:
                 continue
             common = sorted(set(gen_index[m]) & set(gen_index[a]))
+            cap = max_anchor_items
+            if cap is not None and len(common) > cap:
+                stride = len(common) / cap
+                common = [common[int(i * stride)] for i in range(cap)]
             for key in common:
                 track, item_id, variant = key
                 dkey = _dedupe_key(track, item_id, variant, m, a)
@@ -312,7 +317,10 @@ async def run_pairwise_judging(
     items_index = _load_items_index(settings)
     rubrics = {t: load_rubric(settings.paths.rubric(t)) for t in (1, 2, 3)}
 
-    pairs = build_comparison_pairs(tested_models, anchors, gen_index, settings.pairwise.max_comparisons_per_model)
+    pairs = build_comparison_pairs(
+        tested_models, anchors, gen_index, settings.pairwise.max_comparisons_per_model,
+        settings.pairwise.max_anchor_items,
+    )
     if not pairs:
         logger.warning("no comparison pairs could be built (check generations exist for models/anchors)")
         return []
@@ -330,7 +338,8 @@ async def run_pairwise_judging(
                 judge_notes_ko, rubrics[pair.track], settings,
             )
 
-    tasks = [bounded(pair, judge) for pair in pairs for judge in settings.judges]
+    pairwise_judges = settings.pairwise.judges or settings.judges
+    tasks = [bounded(pair, judge) for pair in pairs for judge in pairwise_judges]
     return await asyncio.gather(*tasks)
 
 

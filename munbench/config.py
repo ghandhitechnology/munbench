@@ -22,6 +22,11 @@ class PairwiseConfig(BaseModel):
     truncate_chars: int = 4000
     anchors: list[str] = Field(default_factory=list)
     max_comparisons_per_model: int = 40
+    # Cap on items per (model, anchor) pair, stride-sampled across the common
+    # item list so all tracks stay represented. None = every common item.
+    max_anchor_items: int | None = None
+    # Judge list for the pairwise stage only; None = use the global `judges`.
+    judges: list[str] | None = None
 
 
 class PathsConfig(BaseModel):

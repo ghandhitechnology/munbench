@@ -66,7 +66,7 @@ async def _check_env_async(models: list[str]) -> None:
     api_models = sorted({m for m in models if not providers.is_cli_model(m)})
     for model in api_models:
         try:
-            result = litellm.validate_environment(model)
+            result = litellm.validate_environment(providers.split_effort(model)[0])
         except Exception:  # noqa: BLE001 - best-effort; unknown providers just skip the check
             continue
         if not result.get("keys_in_environment", True):

@@ -264,6 +264,17 @@ async def _probe_codex_cli() -> str | None:
 # --------------------------------------------------------------------------
 
 
+def split_effort(model: str) -> tuple[str, str | None]:
+    """Split an optional reasoning-effort suffix off a model id:
+    "openrouter/x/y@high" -> ("openrouter/x/y", "high"). "max" maps to "high",
+    the top documented OpenRouter effort level."""
+    if "@" not in model:
+        return model, None
+    base, effort = model.rsplit("@", 1)
+    effort = effort.strip().lower()
+    return base, "high" if effort == "max" else effort
+
+
 async def _complete_litellm(
     model: str,
     messages: list[Message],
@@ -272,12 +283,18 @@ async def _complete_litellm(
     temperature: float | None,
     max_tokens: int | None,
 ) -> str:
+    model, effort = split_effort(model)
     kwargs: dict = dict(
         model=model,
         messages=messages,
         temperature=settings.temperature if temperature is None else temperature,
         max_tokens=settings.max_tokens if max_tokens is None else max_tokens,
     )
+    if effort:
+        # OpenRouter's native reasoning param via extra_body: works uniformly
+        # across providers, unlike litellm's reasoning_effort mapping which
+        # rejects models it doesn't recognize as reasoning-capable.
+        kwargs["extra_body"] = {"reasoning": {"effort": effort}}
     if json_mode:
         kwargs["response_format"] = {"type": "json_object"}
     resp = await litellm.acompletion(**kwargs)
