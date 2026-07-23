@@ -16,9 +16,9 @@ models:
 # Ensemble of judges (cross-family, to dilute self/family bias). Kept
 # separate from `models` even if there's overlap.
 judges:
-  - openrouter/openai/gpt-5
-  - openrouter/google/gemini-2.5-pro
-  - openrouter/anthropic/claude-sonnet-5
+  - openrouter/openai/gpt-5.6-sol
+  - openrouter/google/gemini-3.6-flash
+  - openrouter/anthropic/claude-opus-4.6
 
 # Each judge scores each sample this many times; report mean/std for
 # repeatability (see DESIGN.md "Report repeatability").
