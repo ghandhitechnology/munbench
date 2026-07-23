@@ -46,7 +46,15 @@ class Track2Item(BaseModel):
     id: str
     form: str
     prompt_ko: str
+    # Authored as a free-text string; accept a list too and normalize.
     constraints_ko: list[str] = Field(default_factory=list)
+
+    @field_validator("constraints_ko", mode="before")
+    @classmethod
+    def _coerce_constraints(cls, v: object) -> object:
+        if isinstance(v, str):
+            return [v] if v.strip() else []
+        return v
     targeted_weakness: str
     length_spec: str
     judge_notes_ko: str
@@ -63,7 +71,8 @@ class Track3Item(BaseModel):
     id: str
     subtype: Track3Subtype
     prompt_ko: str
-    # Only present for subtype == "culture-pair" (see generate.py).
+    # Contrast prompt generated as a separate "neutral" variant when present
+    # (all culture-pair items, plus some idiom/subtext items; see generate.py).
     variant_neutral_ko: str | None = None
     expected_behavior_ko: str
     judge_notes_ko: str
@@ -79,6 +88,13 @@ class RubricCriterion(BaseModel):
     description_ko: str
     weight: float
     failure_signals_ko: list[str] = Field(default_factory=list)
+
+    @field_validator("failure_signals_ko", mode="before")
+    @classmethod
+    def _coerce_signals(cls, v: object) -> object:
+        if isinstance(v, str):
+            return [v] if v.strip() else []
+        return v
 
 
 class Rubric(BaseModel):

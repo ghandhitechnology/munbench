@@ -6,8 +6,9 @@ question. 4 assistant outputs are stored per item.
 
 Track 2 (문학): single completion of prompt_ko + constraints_ko + length_spec.
 
-Track 3 (결): single completion of prompt_ko; culture-pair items additionally
-generate a completion of variant_neutral_ko, stored as a separate record with
+Track 3 (결): single completion of prompt_ko; items carrying a
+variant_neutral_ko contrast prompt (all culture-pair items, plus some idiom
+and subtext items) additionally generate it as a separate record with
 variant="neutral" (the prompt_ko record gets variant="specified").
 """
 
@@ -153,7 +154,7 @@ async def _generate_track3_variant(
 
 
 async def generate_track3_item(item: Track3Item, model: str, settings: Settings) -> list[GenerationRecord]:
-    if item.subtype == "culture-pair" and item.variant_neutral_ko:
+    if item.variant_neutral_ko:
         return [
             await _generate_track3_variant(item, item.prompt_ko, "specified", model, settings),
             await _generate_track3_variant(item, item.variant_neutral_ko, "neutral", model, settings),
