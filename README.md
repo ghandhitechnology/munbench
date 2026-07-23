@@ -22,11 +22,14 @@ rationale and methodology.
 # install
 uv sync                      # or: pip install -e ".[dev]"
 
-# set judge/model API keys (litellm convention — provider-specific env vars,
-# e.g. OPENAI_API_KEY, GEMINI_API_KEY, ANTHROPIC_API_KEY)
-export OPENAI_API_KEY=...
-export GEMINI_API_KEY=...
-export ANTHROPIC_API_KEY=...
+# Single-key setup (default config): all models routed through OpenRouter —
+# use "openrouter/<provider>/<model>" ids (see openrouter.ai/models) and set:
+export OPENROUTER_API_KEY=...
+
+# Alternative: call providers directly — use plain litellm ids in the config
+# (gpt-5, gemini/gemini-2.5-pro, anthropic/claude-sonnet-5) and set the
+# provider-specific keys instead:
+# export OPENAI_API_KEY=... GEMINI_API_KEY=... ANTHROPIC_API_KEY=...
 
 # copy and edit the example config
 cp munbench.yaml my-munbench.yaml   # or just edit munbench.yaml in place
