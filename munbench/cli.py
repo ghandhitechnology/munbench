@@ -19,6 +19,7 @@ from munbench import elo as elo_mod
 from munbench import generate as generate_mod
 from munbench import judge_pairwise
 from munbench import judge_rubric
+from munbench import providers
 from munbench import report as report_mod
 from munbench.config import Settings
 from munbench.items import DataFileError, load_rubric, load_slop_list, load_track1, load_track2, load_track3
@@ -48,10 +49,22 @@ def _parse_tracks(track: str) -> list[int]:
     raise typer.BadParameter("track must be 'all', '1', '2', or '3'")
 
 
-def _check_env(models: list[str]) -> None:
-    """Fail with a clear message listing missing API keys before spending any calls."""
-    missing: dict[str, list[str]] = {}
-    for model in sorted(set(models)):
+class EnvCheckError(Exception):
+    """Raised by _check_env_async; carries one human-readable problem line per model."""
+
+    def __init__(self, lines: list[str]) -> None:
+        super().__init__("; ".join(lines))
+        self.lines = lines
+
+
+async def _check_env_async(models: list[str]) -> None:
+    """Fail with a clear message before spending any calls: missing API keys for
+    litellm-routed models (per litellm's env-var convention), or a missing/unusable
+    `claude`/`codex` CLI install for claude-cli/ and codex-cli/ models."""
+    problems: list[str] = []
+
+    api_models = sorted({m for m in models if not providers.is_cli_model(m)})
+    for model in api_models:
         try:
             result = litellm.validate_environment(model)
         except Exception:  # noqa: BLE001 - best-effort; unknown providers just skip the check
@@ -59,11 +72,33 @@ def _check_env(models: list[str]) -> None:
         if not result.get("keys_in_environment", True):
             keys = result.get("missing_keys") or []
             if keys:
-                missing[model] = keys
-    if missing:
-        console.print("[red]Missing API keys (set as environment variables, per litellm's provider convention):[/red]")
-        for model, keys in missing.items():
-            console.print(f"  {model}: {', '.join(keys)}")
+                problems.append(f"{model}: missing API key(s) {', '.join(keys)}")
+
+    cli_models = sorted({m for m in models if providers.is_cli_model(m)})
+    for model in cli_models:
+        error = await providers.check_cli_backend(model)
+        if error:
+            problems.append(f"{model}: {error}")
+
+    if problems:
+        raise EnvCheckError(problems)
+
+
+async def _with_env_check(models: list[str], coro):
+    """Run the env check, then the stage's coroutine, in the same event loop."""
+    await _check_env_async(models)
+    return await coro
+
+
+def _run_stage(models: list[str], coro):
+    """asyncio.run() wrapper shared by generate/judge: env-checks `models` first and
+    turns a failed check into a clean CLI exit instead of a burned API/CLI call."""
+    try:
+        return asyncio.run(_with_env_check(models, coro))
+    except EnvCheckError as e:
+        console.print("[red]Environment check failed:[/red]")
+        for line in e.lines:
+            console.print(f"  {line}")
         raise typer.Exit(1)
 
 
@@ -80,8 +115,7 @@ def generate(
         console.print("[red]No models specified. Use --models or set `models` in munbench.yaml.[/red]")
         raise typer.Exit(1)
     tracks = _parse_tracks(track)
-    _check_env(use_models)
-    out_paths = asyncio.run(generate_mod.run_generation(use_models, tracks, settings))
+    out_paths = _run_stage(use_models, generate_mod.run_generation(use_models, tracks, settings))
     for model, path in out_paths.items():
         console.print(f"[green]{model}[/green] -> {path}")
 
@@ -100,13 +134,16 @@ def judge(
         raise typer.Exit(1)
 
     if mode == "rubric":
-        _check_env(list(use_models) + settings.judges)
-        out_paths = asyncio.run(judge_rubric.run_rubric_for_models(use_models, settings))
+        out_paths = _run_stage(
+            list(use_models) + settings.judges, judge_rubric.run_rubric_for_models(use_models, settings)
+        )
         for model, path in out_paths.items():
             console.print(f"[green]{model}[/green] -> {path}")
     elif mode == "pairwise":
-        _check_env(list(use_models) + settings.judges + settings.pairwise.anchors)
-        comparisons = asyncio.run(judge_pairwise.run_pairwise_judging(use_models, settings))
+        comparisons = _run_stage(
+            list(use_models) + settings.judges + settings.pairwise.anchors,
+            judge_pairwise.run_pairwise_judging(use_models, settings),
+        )
         judge_pairwise.write_comparisons(comparisons, settings.paths.pairwise_comparisons)
         console.print(f"[green]wrote {len(comparisons)} comparisons[/green] -> {settings.paths.pairwise_comparisons}")
     else:

@@ -18,9 +18,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
-import litellm
 from pydantic import BaseModel
 
+from munbench import providers
 from munbench.config import Settings
 from munbench.generate import GenerationRecord, load_generations, record_text
 from munbench.items import Item, Rubric, load_rubric, load_track1, load_track2, load_track3
@@ -202,14 +202,10 @@ async def _get_verdict(messages: list[dict[str, str]], judge_model: str, setting
     last_err: Exception | None = None
     for attempt in range(settings.max_retries + 1):
         try:
-            resp = await litellm.acompletion(
-                model=judge_model,
-                messages=messages,
-                temperature=0.0,
-                max_tokens=512,
-                response_format={"type": "json_object"},
+            content = await providers.complete(
+                judge_model, messages, settings, json_mode=True, temperature=0.0, max_tokens=512
             )
-            return parse_verdict(resp.choices[0].message.content or "")
+            return parse_verdict(content)
         except Exception as e:  # noqa: BLE001
             last_err = e
             if attempt < settings.max_retries:

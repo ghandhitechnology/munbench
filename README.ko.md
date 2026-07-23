@@ -76,16 +76,39 @@ munbench report                    # leaderboard.md / leaderboard.json
 
 단계마다 이전 단계의 `results/` 파일을 읽는 구조라, 중간에 끊겨도 그 단계부터 다시 돌리면 됩니다. OpenRouter 없이 프로바이더 API를 직접 쓰려면 `munbench.yaml`에 일반 litellm 모델 id를 넣고 해당 키를 환경변수로 주면 됩니다.
 
+### API 키 대신 구독으로 돌리기
+
+풀 런 한 번이면 API 요금이 꽤 나옵니다. 그래서 OpenAI와 Anthropic 모델은 종량제 API 키 대신 **ChatGPT / Claude 구독**(Plus, Pro, Max…)으로 돌릴 수 있게 해 뒀습니다. 각 사의 공식 CLI를 헤드리스 모드로 태우는 방식이라, 리버스 엔지니어링 같은 것 없이 제품이 지원하는 경로 그대로입니다. 평가 대상(`models`)과 심사자(`judges`) 양쪽 모두에 쓸 수 있고, 같은 목록 안에서 API 모델과 자유롭게 섞입니다.
+
+모델 id 앞에 접두사만 붙이면 됩니다.
+
+| 접두사 | 경로 | 사전 준비 |
+|---|---|---|
+| `claude-cli/<모델 id>` | Claude Code(`claude -p`) — Claude 구독으로 과금 | `npm i -g @anthropic-ai/claude-code` 후 `claude login` |
+| `codex-cli/<모델 id>` | Codex CLI(`codex exec`) — ChatGPT 구독으로 과금 | [Codex CLI](https://github.com/openai/codex) 설치 후 `codex login` |
+
+```yaml
+models:
+  - claude-cli/claude-opus-4-6
+  - codex-cli/gpt-5.6-sol
+  - openrouter/google/gemini-3.6-flash   # API 모델과 섞어 써도 됩니다
+```
+
+`generate`/`judge`는 호출을 한 번이라도 쓰기 전에 CLI 설치·로그인 상태부터 확인하고, 안 되어 있으면 `claude login` / `codex login`을 하라고 명확히 알려주고 멈춥니다.
+
+미리 알아둘 것 두 가지. 구독 플랜의 사용량 제한이 그대로 적용되므로 CLI 모델에는 별도의 낮은 동시성 상한(`cli_concurrency`, 기본 2)이 걸립니다. 그리고 CLI를 거치는 동안은 `temperature`/`max_tokens`를 제어할 수 없습니다 — 설정 파일에 뭐라고 적어 두든 제품 기본값으로 돌아갑니다.
+
 ## 설정 (`munbench.yaml`)
 
 | 키 | 설명 |
 |---|---|
-| `models` | 평가 대상 모델. 앵커도 여기 들어가야 합니다(앵커의 출력이 비교 기준이라서). |
+| `models` | 평가 대상 모델(litellm id, 또는 구독 라우팅용 `claude-cli/`·`codex-cli/`). 앵커도 여기 들어가야 합니다(앵커의 출력이 비교 기준이라서). |
 | `judges` | 심사 앙상블. 일부러 서로 다른 계열로 셋. |
 | `rubric_iterations` | 심사자당 반복 채점 횟수. |
 | `pairwise.anchors` | 1200점 고정 앵커. |
 | `pairwise.max_comparisons_per_model` | 모델이 늘어도 대전 수가 폭발하지 않게 거는 상한. |
 | `concurrency` / `max_retries` | API 호출 조절. |
+| `cli_concurrency` | `claude-cli/`·`codex-cli/` 모델에만 적용되는 별도의 낮은 동시성 상한. |
 
 ## 미리 밝혀두는 한계
 

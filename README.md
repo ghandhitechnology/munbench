@@ -76,16 +76,41 @@ munbench report                    # leaderboard.md / leaderboard.json
 
 Each stage reads the previous stage's files from `results/`, so everything is resumable and re-runnable independently. Prefer direct provider APIs? Use plain litellm ids in the config and set per-provider keys instead — the harness doesn't care.
 
+### Running on subscriptions instead of API keys
+
+OpenAI and Anthropic models can also be run through the user's **ChatGPT / Claude subscription** (Pro, Max, Plus, …) instead of a metered API key, by routing through the official headless CLIs. This works for entries in both `models` and `judges`, and mixes freely with litellm/OpenRouter ids in the same list.
+
+Prefix a model id to switch it to CLI mode:
+
+| Prefix | Backend | Prerequisites |
+|---|---|---|
+| `claude-cli/<model-id>` | Claude Code (`claude -p`), billed to your Claude plan | `npm i -g @anthropic-ai/claude-code`, then `claude login` |
+| `codex-cli/<model-id>` | Codex CLI (`codex exec`), billed to your ChatGPT plan | Install the [Codex CLI](https://github.com/openai/codex), then `codex login` |
+
+```yaml
+models:
+  - claude-cli/claude-opus-4-6
+  - codex-cli/gpt-5.6-sol
+  - openrouter/google/gemini-3.6-flash   # mix freely with litellm ids
+```
+
+`munbench generate` / `munbench judge` check each CLI is installed and logged in before spending any calls, and fail with a clear `claude login` / `codex login` message if not.
+
+Caveats:
+- **Your plan's rate limits apply**, and CLI sessions are heavier than a plain API call — kept gentler via the separate `cli_concurrency` setting (default 2, vs. `concurrency` for everything else).
+- **`temperature` and `max_tokens` are not controllable** through either CLI — product defaults apply regardless of what's set in `munbench.yaml`, for both generation and judging.
+
 ## Config (`munbench.yaml`)
 
 | Key | What it does |
 |---|---|
-| `models` | Models under test (litellm ids). Anchors must be listed here too — their generations are the reference points. |
+| `models` | Models under test (litellm ids, or `claude-cli/` / `codex-cli/` for subscription routing). Anchors must be listed here too — their generations are the reference points. |
 | `judges` | The scoring ensemble. Cross-family on purpose. |
 | `rubric_iterations` | Re-scores per judge per sample; the std is your noise floor. |
 | `pairwise.anchors` | Elo reference models, pinned at 1200. |
 | `pairwise.max_comparisons_per_model` | Caps round-robin cost as the roster grows. |
 | `concurrency` / `max_retries` | Async throttling for API calls. |
+| `cli_concurrency` | Lower, separate concurrency cap for `claude-cli/` / `codex-cli/` models only. |
 
 ## Honest caveats
 

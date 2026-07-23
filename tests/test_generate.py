@@ -70,7 +70,7 @@ def mock_acompletion(monkeypatch):
         calls["n"] += 1
         return _fake_response(f"응답-{calls['n']}")
 
-    monkeypatch.setattr(generate_mod.litellm, "acompletion", fake)
+    monkeypatch.setattr(generate_mod.providers.litellm, "acompletion", fake)
     return calls
 
 
@@ -109,7 +109,7 @@ async def test_generation_failure_is_recorded_not_raised(monkeypatch):
     async def failing(**kwargs):
         raise RuntimeError("provider is down")
 
-    monkeypatch.setattr(generate_mod.litellm, "acompletion", failing)
+    monkeypatch.setattr(generate_mod.providers.litellm, "acompletion", failing)
     record = await generate_mod.generate_track2_item(TRACK2_ITEM, "fake-model", SETTINGS)
     assert record.error is not None
     assert "provider is down" in record.error

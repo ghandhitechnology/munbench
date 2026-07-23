@@ -19,8 +19,8 @@ import logging
 from pathlib import Path
 
 from pydantic import BaseModel
-import litellm
 
+from munbench import providers
 from munbench.config import Settings
 from munbench.items import Track1Item, Track2Item, Track3Item, load_track1, load_track2, load_track3
 
@@ -82,14 +82,8 @@ async def _complete_with_retry(
     last_err: Exception | None = None
     for attempt in range(settings.max_retries + 1):
         try:
-            resp = await litellm.acompletion(
-                model=model,
-                messages=messages,
-                temperature=settings.temperature,
-                max_tokens=settings.max_tokens,
-            )
-            return resp.choices[0].message.content or ""
-        except Exception as e:  # noqa: BLE001 - litellm raises many provider-specific types
+            return await providers.complete(model, messages, settings)
+        except Exception as e:  # noqa: BLE001 - litellm/CLI backends raise many exception types
             last_err = e
             if attempt < settings.max_retries:
                 wait = settings.retry_backoff_seconds * (2**attempt)

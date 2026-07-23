@@ -6,6 +6,21 @@
 # Single-key setup: prefix every model id with "openrouter/" and set only
 # OPENROUTER_API_KEY. Model ids follow openrouter.ai/models naming
 # (e.g. openrouter/openai/gpt-5, openrouter/google/gemini-2.5-pro).
+#
+# Subscription-based setup (no API key billing): prefix a model id with
+# "claude-cli/" or "codex-cli/" to route it through the official Claude Code /
+# Codex CLI in headless mode, billed against your ChatGPT/Claude *subscription*
+# plan instead of a metered API key. Works for entries in both `models` and
+# `judges`, and can be mixed freely with openrouter/-prefixed (or any other
+# litellm) model ids in the same list, e.g.:
+#   models:
+#     - claude-cli/claude-opus-4-6     # runs `claude -p` — needs `claude login`
+#     - codex-cli/gpt-5.6-sol          # runs `codex exec` — needs `codex login`
+#     - openrouter/google/gemini-3.6-flash
+# Caveats: your plan's rate limits apply (kept gentler via `cli_concurrency`
+# below), and `temperature`/`max_tokens` are NOT controllable through either
+# CLI — product defaults apply regardless of the values set below. See README
+# ("Running on subscriptions instead of API keys") for setup steps.
 
 # litellm model ids for the models under test (i.e. the models being benchmarked).
 models:
@@ -48,6 +63,10 @@ max_tokens: 2048
 
 # Bounded concurrency for async generation/judging calls.
 concurrency: 8
+# Separate, lower concurrency cap for claude-cli/ and codex-cli/ models only —
+# subscription CLI sessions are heavier than a plain API call and subscription
+# rate limits are tighter than API rate limits.
+cli_concurrency: 2
 max_retries: 3
 retry_backoff_seconds: 2.0
 

@@ -13,9 +13,9 @@ import re
 import statistics
 from pathlib import Path
 
-import litellm
 from pydantic import BaseModel
 
+from munbench import providers
 from munbench.config import Settings
 from munbench.generate import GenerationRecord, load_generations
 from munbench.items import Rubric, Track1Item, Track2Item, Track3Item, load_rubric, load_track1, load_track2, load_track3
@@ -208,14 +208,7 @@ async def _judge_once(
     last_err: Exception | None = None
     for attempt in range(settings.max_retries + 1):
         try:
-            resp = await litellm.acompletion(
-                model=judge_model,
-                messages=messages,
-                temperature=0.0,
-                max_tokens=settings.max_tokens,
-                response_format={"type": "json_object"},
-            )
-            content = resp.choices[0].message.content or ""
+            content = await providers.complete(judge_model, messages, settings, json_mode=True, temperature=0.0)
             scores, err = parse_judge_response(content, rubric)
             return JudgeIterationResult(raw_scores=scores, weighted_score=weighted_score(scores, rubric), parse_error=err)
         except Exception as e:  # noqa: BLE001

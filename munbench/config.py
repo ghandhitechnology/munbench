@@ -89,6 +89,10 @@ class Settings(BaseModel):
     temperature: float = 1.0
     max_tokens: int = 2048
     concurrency: int = 8
+    # Separate, lower concurrency cap for claude-cli/ and codex-cli/ models (see
+    # providers.py): subscription CLI sessions are heavier than a plain API call and
+    # subscription rate limits are tighter than API rate limits.
+    cli_concurrency: int = 2
     max_retries: int = 3
     retry_backoff_seconds: float = 2.0
     paths: PathsConfig = Field(default_factory=PathsConfig)
