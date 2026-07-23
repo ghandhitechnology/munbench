@@ -1,4 +1,5 @@
-from munbench.elo import fit_elo
+from munbench.elo import fit_elo, games_from_comparisons
+from munbench.judge_pairwise import PairwiseComparison
 
 
 def test_fit_elo_stronger_model_ends_up_higher():
@@ -33,3 +34,30 @@ def test_fit_elo_transitive_ordering():
 
 def test_fit_elo_empty_games_returns_empty():
     assert fit_elo([], anchors=["anchor"]) == {}
+
+
+def test_games_from_comparisons_excludes_error_even_with_score(): # fix 2
+    # Reproduces the exact defect: score_a is non-null (from a single surviving
+    # order) while error is also non-null - must be excluded from the Elo fit.
+    comparisons = [
+        PairwiseComparison(
+            track=1, item_id="t1-001", variant=None, model_a="m1", model_b="m2", judge="j1",
+            order1_winner="A", order2_winner=None, score_a=1.0, error="call failed: timeout",
+        ),
+        PairwiseComparison(
+            track=1, item_id="t1-002", variant=None, model_a="m1", model_b="m2", judge="j1",
+            order1_winner="A", order2_winner="B", score_a=1.0, error=None,
+        ),
+    ]
+    games = games_from_comparisons(comparisons)
+    assert games == [("m1", "m2", 1.0)]
+
+
+def test_games_from_comparisons_excludes_none_score():
+    comparisons = [
+        PairwiseComparison(
+            track=1, item_id="t1-001", variant=None, model_a="m1", model_b="m2", judge="j1",
+            order1_winner=None, order2_winner=None, score_a=None, error="call failed",
+        ),
+    ]
+    assert games_from_comparisons(comparisons) == []

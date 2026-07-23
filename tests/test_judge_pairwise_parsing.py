@@ -59,3 +59,20 @@ def test_score_from_winners_position_bias_averaged():
 
 def test_score_from_winners_missing_data_returns_none():
     assert _score_from_winners(None, None) is None
+
+
+def test_score_from_winners_single_surviving_order_returns_none():
+    # Fix: a single surviving order can't cancel position bias by itself - must not
+    # silently fall back to an unaveraged single-order score.
+    assert _score_from_winners("A", None) is None
+    assert _score_from_winners(None, "B") is None
+    assert _score_from_winners("draw", None) is None
+
+
+def test_parse_verdict_brace_in_trailing_prose():
+    # A valid JSON object followed by unrelated prose containing another brace pair -
+    # a naive greedy regex would span to the LAST '}' and fail to parse.
+    content = '{"winner": "A", "reason": "더 자연스러움"} 참고로 다른 예시는 {이것} 같은 것입니다.'
+    winner, error = parse_verdict(content)
+    assert winner == "A"
+    assert error is None

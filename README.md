@@ -58,7 +58,7 @@ Every output gets scored three independent ways, because each way has a known bl
 
 **2. Elo (discriminative).** Rubric scores compress at the frontier; head-to-head choices don't. Judges compare two anonymized outputs on the same item — truncated to equal length (kills length bias), judged in both A/B orders and averaged (kills position bias) — and the results are fitted into Elo ratings. Three **anchor models are pinned at 1200** as a top/mid/floor ladder: Claude Opus 4.6 (ceiling), Solar Pro 3 (Korean-native mid reference — every rating implicitly answers "how does this compare to a dedicated Korean model?"), GPT-5.6 Luna (floor). Pinned anchors mean adding model #10 next month doesn't move models #1–9.
 
-**3. Judge-free metrics (the tripwires).** No LLM opinions involved: slop hits per 1,000 chars against a curated 185-phrase Korean LLM-cliché list (마음 한켠, 심장이 쿵 내려앉…, translationese like ~에 다름 아니다), n-gram repetition, length compliance, and **code-switch detection** — Latin characters above 2% gets flagged, because per KUDGE, LLM judges reliably fail to notice English leaking into Korean text.
+**3. Judge-free metrics (the tripwires).** No LLM opinions involved: slop hits per 1,000 chars against a curated 184-phrase Korean LLM-cliché list (마음 한켠, 심장이 쿵 내려앉…, translationese like ~에 다름 아니다), n-gram repetition, length compliance, and **code-switch detection** — Latin characters above 2% gets flagged, because per KUDGE, LLM judges reliably fail to notice English leaking into Korean text.
 
 ## Quickstart
 
@@ -66,6 +66,12 @@ Every output gets scored three independent ways, because each way has a known bl
 uv sync                            # or: pip install -e ".[dev]"
 export OPENROUTER_API_KEY=...      # single key, all models routed via OpenRouter
 
+munbench run                       # the whole pipeline below, in order
+```
+
+`munbench run` is `validate-data` → `generate` → `judge --mode rubric` → `judge --mode pairwise` → `elo` → `report`, stopping with a clear message on the first stage that fails. Each stage is also its own command and reads the previous stage's files from `results/`, so everything is independently resumable — either run them one at a time, or resume a partial `run` with `--skip-generate` / `--skip-rubric` / `--skip-pairwise` / `--skip-elo` / `--skip-report`:
+
+```bash
 munbench validate-data             # schema-check items/rubrics/slop list
 munbench generate --track all      # ~191 outputs per model
 munbench judge --mode rubric       # 3 judges × 3 iterations per sample
@@ -74,7 +80,7 @@ munbench elo                       # fit ratings, anchors pinned at 1200
 munbench report                    # leaderboard.md / leaderboard.json
 ```
 
-Each stage reads the previous stage's files from `results/`, so everything is resumable and re-runnable independently. Prefer direct provider APIs? Use plain litellm ids in the config and set per-provider keys instead — the harness doesn't care.
+Prefer direct provider APIs? Use plain litellm ids in the config and set per-provider keys instead — the harness doesn't care.
 
 ### Running on subscriptions instead of API keys
 
@@ -105,12 +111,17 @@ Caveats:
 | Key | What it does |
 |---|---|
 | `models` | Models under test (litellm ids, or `claude-cli/` / `codex-cli/` for subscription routing). Anchors must be listed here too — their generations are the reference points. |
-| `judges` | The scoring ensemble. Cross-family on purpose. |
+| `judges` | The scoring ensemble. Cross-family on purpose. No OpenRouter-only default beyond the built-in fallback (openrouter/-prefixed GPT-5 / Gemini 2.5 Pro / Claude Sonnet 5) — set your own to match your roster. |
 | `rubric_iterations` | Re-scores per judge per sample; the std is your noise floor. |
+| `pairwise.enabled` | Turn the whole pairwise/Elo pass off. `false` makes `judge --mode pairwise` produce zero comparisons (logged, not an error). |
+| `pairwise.truncate_chars` | Both sides of a pairwise comparison are truncated to this many characters before judging, to remove length bias. |
 | `pairwise.anchors` | Elo reference models, pinned at 1200. |
 | `pairwise.max_comparisons_per_model` | Caps round-robin cost as the roster grows. |
-| `concurrency` / `max_retries` | Async throttling for API calls. |
+| `temperature` / `max_tokens` | Sampling params for litellm-routed calls (ignored by `claude-cli/` / `codex-cli/` models — see above). |
+| `concurrency` | Async throttling for litellm API calls. |
 | `cli_concurrency` | Lower, separate concurrency cap for `claude-cli/` / `codex-cli/` models only. |
+| `max_retries` / `retry_backoff_seconds` | Retry count and exponential backoff base for generation/judging calls. |
+| `paths.data_dir` / `paths.results_dir` | Where items/rubrics are read from and where all pipeline output is written. |
 
 ## Honest caveats
 
@@ -123,7 +134,7 @@ Caveats:
 ```
 data/items/       158 items across 3 tracks (native-Korean, critic-reviewed)
 data/rubrics/     per-track weighted rubrics
-data/slop_list.json   185 Korean LLM-slop phrases
+data/slop_list.json   184 Korean LLM-slop phrases
 munbench/         the harness: generate → judge → elo → report
 DESIGN.md         full methodology + the research it's built on
 existing_benches.md   the 40+ benchmarks surveyed, one line each

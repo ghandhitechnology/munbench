@@ -18,7 +18,12 @@ ANCHOR_RATING = 1200.0
 
 
 def games_from_comparisons(comparisons: list[PairwiseComparison]) -> list[Game]:
-    return [(c.model_a, c.model_b, c.score_a) for c in comparisons if c.score_a is not None]
+    """Only comparisons with a score AND no recorded error enter the Elo fit. In
+    practice judge_pairwise's _score_from_winners already guarantees score_a is None
+    whenever either label-order failed, so this is a belt-and-suspenders check on the
+    consumption side against the position-bias-cancellation invariant, not just an
+    internal one."""
+    return [(c.model_a, c.model_b, c.score_a) for c in comparisons if c.score_a is not None and c.error is None]
 
 
 def fit_elo(

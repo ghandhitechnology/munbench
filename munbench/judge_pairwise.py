@@ -13,17 +13,17 @@ import asyncio
 import itertools
 import json
 import logging
-import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
 from pydantic import BaseModel
 
-from munbench import providers
+from munbench import providers, rendering
 from munbench.config import Settings
 from munbench.generate import GenerationRecord, load_generations, record_text
-from munbench.items import Item, Rubric, load_rubric, load_track1, load_track2, load_track3
+from munbench.items import Item, Rubric, Track1Item, load_rubric, load_track1, load_track2, load_track3
+from munbench.jsonutil import extract_first_json_object
 
 logger = logging.getLogger(__name__)
 
@@ -85,30 +85,48 @@ def _load_items_index(settings: Settings) -> dict[int, dict[str, Item]]:
 # --------------------------------------------------------------------------
 
 
+def _dedupe_key(track: int, item_id: str, variant: str | None, m1: str, m2: str) -> tuple[int, str, str | None, str, str]:
+    a, b = sorted((m1, m2))
+    return (track, item_id, variant, a, b)
+
+
 def build_comparison_pairs(
     tested_models: list[str],
     anchors: list[str],
     gen_index: dict[str, dict[GenKey, GenerationRecord]],
     max_comparisons_per_model: int,
 ) -> list[PairSpec]:
+    anchor_set = set(anchors)
     pairs: list[PairSpec] = []
+    seen: set[tuple[int, str, str | None, str, str]] = set()
 
-    # 1. Every tested (non-anchor-self) model vs every anchor, on every common item.
+    # 1. Every non-anchor tested model vs every anchor, on every common item. Anchors
+    # are pinned at a fixed Elo rating (see elo.py), so an anchor never needs to be on
+    # the "primary" side of a comparison - only tested-vs-anchor is useful.
     for m in tested_models:
+        if m in anchor_set:
+            continue
         for a in anchors:
             if m == a or m not in gen_index or a not in gen_index:
                 continue
             common = sorted(set(gen_index[m]) & set(gen_index[a]))
             for key in common:
                 track, item_id, variant = key
+                dkey = _dedupe_key(track, item_id, variant, m, a)
+                if dkey in seen:
+                    continue
+                seen.add(dkey)
                 pairs.append(PairSpec(track=track, item_id=item_id, variant=variant, model_a=m, model_b=a))
 
-    # 2. Capped round-robin among tested models, spread evenly across items/pairs.
-    remaining = {m: max_comparisons_per_model for m in tested_models}
-    combos = list(itertools.combinations(sorted(tested_models), 2))
+    # 2. Capped round-robin among non-anchor tested models only, spread evenly across
+    # items/pairs. Anchor-vs-anchor games are pure waste (fit_elo never updates a
+    # pinned rating) and are excluded entirely, not just capped.
+    round_robin_models = sorted(m for m in tested_models if m not in anchor_set)
+    remaining = {m: max_comparisons_per_model for m in round_robin_models}
+    combos = list(itertools.combinations(round_robin_models, 2))
     if combos:
         all_keys: set[GenKey] = set()
-        for m in tested_models:
+        for m in round_robin_models:
             all_keys |= set(gen_index.get(m, {}))
         for key in sorted(all_keys):
             for m1, m2 in combos:
@@ -119,6 +137,10 @@ def build_comparison_pairs(
                 if remaining[m1] <= 0 or remaining[m2] <= 0:
                     continue
                 track, item_id, variant = key
+                dkey = _dedupe_key(track, item_id, variant, m1, m2)
+                if dkey in seen:
+                    continue
+                seen.add(dkey)
                 pairs.append(PairSpec(track=track, item_id=item_id, variant=variant, model_a=m1, model_b=m2))
                 remaining[m1] -= 1
                 remaining[m2] -= 1
@@ -129,8 +151,6 @@ def build_comparison_pairs(
 # --------------------------------------------------------------------------
 # Prompt + parsing
 # --------------------------------------------------------------------------
-
-_JSON_BLOCK_RE = re.compile(r"\{.*\}", re.DOTALL)
 
 
 def truncate(text: str, n: int) -> str:
@@ -162,13 +182,9 @@ def parse_verdict(content: str) -> tuple[Winner | None, str | None]:
     try:
         data = json.loads(candidate)
     except json.JSONDecodeError:
-        m = _JSON_BLOCK_RE.search(candidate)
-        if not m:
+        data = extract_first_json_object(candidate)
+        if data is None:
             return None, f"no JSON object found: {content[:200]!r}"
-        try:
-            data = json.loads(m.group(0))
-        except json.JSONDecodeError as e:
-            return None, f"malformed JSON: {e}"
     winner = str(data.get("winner", "")).strip().upper() if isinstance(data, dict) else ""
     if winner in ("A", "B"):
         return winner, None  # type: ignore[return-value]
@@ -184,13 +200,27 @@ def item_context_and_notes(
     if item is None:
         return f"(item {item_id} not found)", ""
     if track == 1:
-        context = f"상황: {item.setup_ko}\n모델 역할: {item.model_role_ko}\n분석 질문: {item.analysis_question_ko}"
+        assert isinstance(item, Track1Item)
+        context = (
+            f"상황: {item.setup_ko}\n모델 역할: {item.model_role_ko}\n상대방: {item.interlocutor_ko}\n\n"
+            f"[상대방의 대사 — 두 응답 모두 이 동일한 대화 흐름에 대한 답변임]\n{rendering.render_track1_turns(item)}\n\n"
+            f"분석 질문: {item.analysis_question_ko}"
+        )
     elif track == 2:
         context = f"프롬프트: {item.prompt_ko}\n분량: {item.length_spec}"
     else:
         prompt = item.prompt_ko if variant != "neutral" else (item.variant_neutral_ko or item.prompt_ko)
         context = f"프롬프트: {prompt}\n기대되는 처리 방식: {item.expected_behavior_ko}"
     return context, item.judge_notes_ko
+
+
+def pairwise_response_text(record: GenerationRecord) -> str:
+    """Text shown for one side (A or B) of a pairwise comparison. Track 1 gets each
+    of its 4 outputs labeled (roleplay turns vs. the out-of-character analysis) via
+    the shared renderer, instead of a bare newline-joined blob — see rendering.py."""
+    if record.track == 1:
+        return rendering.render_track1_response(record)
+    return record_text(record)
 
 
 # --------------------------------------------------------------------------
@@ -214,21 +244,31 @@ async def _get_verdict(messages: list[dict[str, str]], judge_model: str, setting
 
 
 def _score_from_winners(order1: Winner | None, order2: Winner | None) -> float | None:
-    """order1: model_a labeled A. order2: model_a labeled B (model_b labeled A)."""
+    """order1: model_a labeled A. order2: model_a labeled B (model_b labeled A).
+
+    Only returns a score when BOTH orders produced a valid verdict. A single
+    surviving order can't cancel position bias by itself (the whole point of judging
+    both orders and averaging), so a partial result must not silently masquerade as a
+    fully-averaged one — return None instead, so the comparison is excluded from the
+    Elo fit (see elo.py) exactly like a fully-failed comparison, and the per-order
+    retries in _get_verdict get another chance on the next `judge --mode pairwise` run.
+    """
+    if order1 is None or order2 is None:
+        return None
     scores = []
     if order1 == "A":
         scores.append(1.0)
     elif order1 == "B":
         scores.append(0.0)
-    elif order1 == "draw":
+    else:  # draw
         scores.append(0.5)
     if order2 == "B":  # model_a is B in this order, so B winning means model_a wins
         scores.append(1.0)
     elif order2 == "A":
         scores.append(0.0)
-    elif order2 == "draw":
+    else:  # draw
         scores.append(0.5)
-    return sum(scores) / len(scores) if scores else None
+    return sum(scores) / len(scores)
 
 
 async def judge_pair(
@@ -286,8 +326,8 @@ async def run_pairwise_judging(
         context, judge_notes_ko = item_context_and_notes(pair.track, pair.item_id, pair.variant, items_index)
         async with sem:
             return await judge_pair(
-                pair, judge_model, record_text(rec_a), record_text(rec_b), context, judge_notes_ko,
-                rubrics[pair.track], settings,
+                pair, judge_model, pairwise_response_text(rec_a), pairwise_response_text(rec_b), context,
+                judge_notes_ko, rubrics[pair.track], settings,
             )
 
     tasks = [bounded(pair, judge) for pair in pairs for judge in settings.judges]

@@ -41,6 +41,19 @@ def test_distinct_trigram_ratio_repetitive_text_is_lower():
     assert distinct_trigram_ratio(repetitive) < distinct_trigram_ratio(varied)
 
 
+def test_distinct_trigram_ratio_none_for_degenerate_short_text():
+    # Under 3 non-whitespace-collapsed chars -> no trigrams exist at all; this must
+    # not be reported as maximum diversity (1.0), which would reward near-empty output.
+    assert distinct_trigram_ratio("") is None
+    assert distinct_trigram_ratio("a") is None
+    assert distinct_trigram_ratio("네") is None
+    assert distinct_trigram_ratio("  ") is None  # whitespace-only collapses to < 3 chars
+
+
+def test_distinct_trigram_ratio_exactly_three_chars_is_measured():
+    assert distinct_trigram_ratio("abc") == 1.0
+
+
 def test_longest_repeated_substring_detects_repeat():
     text = "가나다라마바사" + "abcdefghij" + "가나다라마바사"
     assert longest_repeated_substring(text) >= 7
@@ -79,19 +92,37 @@ def test_language_consistency_flag_thresholds():
 
 
 def test_parse_length_spec_range():
-    assert parse_length_spec("600~1200자") == (600, 1200)
-    assert parse_length_spec("600-1200자") == (600, 1200)
+    assert parse_length_spec("600~1200자") == ("char", 600, 1200)
+    assert parse_length_spec("600-1200자") == ("char", 600, 1200)
 
 
 def test_parse_length_spec_approx():
     bounds = parse_length_spec("약 800자")
     assert bounds is not None
-    lo, hi = bounds
+    unit, lo, hi = bounds
+    assert unit == "char"
     assert lo < 800 < hi
 
 
 def test_parse_length_spec_unparsable_returns_none():
     assert parse_length_spec("적당한 분량") is None
+
+
+def test_parse_length_spec_line_based_poem_spec():
+    # Real track2 poem specs use 행 (lines), not 자 (chars).
+    assert parse_length_spec("12~20행") == ("line", 12, 20)
+    assert parse_length_spec("10~16행") == ("line", 10, 16)
+    assert parse_length_spec("12~20행 내외 자유시(제목 포함)") == ("line", 12, 20)
+
+
+def test_parse_length_spec_stanza_with_total_lines_subclause():
+    # "총 X~Y행" is the most reliable bound when present, regardless of stanza count.
+    assert parse_length_spec("3~5연 (총 12~30행 내외)") == ("line", 12, 30)
+    assert parse_length_spec("4~6연 (각 연 4~5행, 총 16~30행)") == ("line", 16, 30)
+
+
+def test_parse_length_spec_bare_stanza_range():
+    assert parse_length_spec("3~5연") == ("stanza", 3, 5)
 
 
 def test_length_compliance_in_and_out_of_range():
@@ -102,3 +133,15 @@ def test_length_compliance_in_and_out_of_range():
 
 def test_length_compliance_unparsable_spec_returns_none():
     assert length_compliance("아무 텍스트", "정해지지 않음") is None
+
+
+def test_length_compliance_line_based():
+    text = "\n".join(f"{i}번째 줄" for i in range(15))  # 15 non-empty lines
+    assert length_compliance(text, "12~20행") is True
+    assert length_compliance(text, "16~20행") is False
+
+
+def test_length_compliance_stanza_based():
+    text = "첫 연 첫 줄\n첫 연 둘째 줄\n\n둘째 연 첫 줄\n\n셋째 연"  # 3 stanzas
+    assert length_compliance(text, "3~5연") is True
+    assert length_compliance(text, "6~8연") is False

@@ -13,12 +13,13 @@ import re
 import statistics
 from pathlib import Path
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
-from munbench import providers
+from munbench import providers, rendering
 from munbench.config import Settings
 from munbench.generate import GenerationRecord, load_generations
 from munbench.items import Rubric, Track1Item, Track2Item, Track3Item, load_rubric, load_track1, load_track2, load_track3
+from munbench.jsonutil import extract_first_json_object
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +52,10 @@ class RubricResult(BaseModel):
     judges: list[JudgeAggregate]
     final_mean: float | None
     judge_disagreement_std: float | None
+    # Judges that produced zero parseable iterations (contributed nothing to
+    # final_mean) — without this, a degraded 1-of-3-judge result and a genuine
+    # 3-judge unanimous result can both show judge_disagreement_std == 0.0.
+    judges_failed: list[str] = Field(default_factory=list)
     human_score: None = None
 
 
@@ -76,22 +81,7 @@ def render_context(record: GenerationRecord, item: Item) -> tuple[str, str]:
     """Returns (context, judge_notes_ko) for a generation record."""
     if record.track == 1:
         assert isinstance(item, Track1Item)
-        lines = [
-            f"상황: {item.setup_ko}",
-            f"모델이 맡은 역할: {item.model_role_ko}",
-            f"상대방: {item.interlocutor_ko}",
-            "",
-            "[대화]",
-        ]
-        for i, turn in enumerate(item.turns_ko):
-            lines.append(f"상대방: {turn}")
-            if i < len(record.outputs):
-                lines.append(f"모델(연기): {record.outputs[i]}")
-        lines.append("")
-        lines.append(f"[분석 질문] {item.analysis_question_ko}")
-        if len(record.outputs) > 3:
-            lines.append(f"[모델의 분석] {record.outputs[3]}")
-        return "\n".join(lines), item.judge_notes_ko
+        return rendering.render_track1_dialogue(record, item), item.judge_notes_ko
 
     if record.track == 2:
         assert isinstance(item, Track2Item)
@@ -144,56 +134,94 @@ def build_judge_prompt(context: str, judge_notes_ko: str, rubric: Rubric) -> lis
 # Defensive JSON parsing
 # --------------------------------------------------------------------------
 
-_JSON_BLOCK_RE = re.compile(r"\{.*\}", re.DOTALL)
+# Strips whitespace and the punctuation that varies between otherwise-identical
+# criterion names across the shipped rubrics (e.g. track1's "절제·진정성 (아부 방지)"
+# vs track3's "절제·진정성(과잉 검증·아부 배격)" — space-before-paren differs even
+# within this repo's own data) so a judge's minor formatting drift on a key doesn't
+# get treated as a missing criterion.
+_PUNCT_WS_RE = re.compile(r"[\s·\-–—,:;()\[\]（）]+")
+
+
+def _normalize_criterion_name(name: str) -> str:
+    return _PUNCT_WS_RE.sub("", name.strip())
+
+
+def _match_criterion_value(
+    name: str, literal: dict[str, object], normalized: dict[str, object], used_norm_keys: set[str]
+) -> tuple[object | None, str | None]:
+    """Look up a criterion's value in the judge's JSON: exact match first, then a
+    punctuation/whitespace-normalized match, then an unambiguous substring match (only
+    claimed when exactly one normalized judge key qualifies, to avoid guessing between
+    multiple similarly-named criteria). Returns (value, matched_normalized_key)."""
+    if name in literal:
+        return literal[name], _normalize_criterion_name(name)
+    norm_name = _normalize_criterion_name(name)
+    if norm_name in normalized and norm_name not in used_norm_keys:
+        return normalized[norm_name], norm_name
+    candidates = [
+        k for k in normalized if k not in used_norm_keys and len(k) >= 4 and (k in norm_name or norm_name in k)
+    ]
+    if len(candidates) == 1:
+        return normalized[candidates[0]], candidates[0]
+    return None, None
 
 
 def parse_judge_response(content: str, rubric: Rubric) -> tuple[dict[str, float], str | None]:
     """Best-effort parse of the judge's JSON. Returns (scores, parse_error).
 
-    scores only contains criteria that were found and coercible to a float in [0, 10];
-    parse_error is set (but scores may still be partially populated) if anything went wrong.
+    scores contains whichever criteria were found (exact, normalized, or unambiguous
+    substring match) and coercible to a float in [0, 10] — partial results are kept
+    (see weighted_score) rather than discarding the whole iteration for one drifted
+    key; parse_error lists anything that still couldn't be matched.
     """
     candidate = content.strip()
     try:
         data = json.loads(candidate)
     except json.JSONDecodeError:
-        m = _JSON_BLOCK_RE.search(candidate)
-        if not m:
+        data = extract_first_json_object(candidate)
+        if data is None:
             return {}, f"no JSON object found in judge response: {content[:200]!r}"
-        try:
-            data = json.loads(m.group(0))
-        except json.JSONDecodeError as e:
-            return {}, f"malformed JSON in judge response: {e}"
 
     if not isinstance(data, dict):
         return {}, f"judge response JSON was not an object: {type(data).__name__}"
 
-    normalized = {str(k).strip(): v for k, v in data.items()}
+    literal = {str(k).strip(): v for k, v in data.items()}
+    normalized = {_normalize_criterion_name(str(k)): v for k, v in data.items()}
+
     scores: dict[str, float] = {}
-    missing = []
+    used_norm_keys: set[str] = set()
+    missing: list[str] = []
     for criterion in rubric.criteria:
         name = criterion.name_ko
-        if name not in normalized:
+        raw, matched_key = _match_criterion_value(name, literal, normalized, used_norm_keys)
+        if raw is None:
             missing.append(name)
             continue
         try:
-            score = float(normalized[name])
+            score = float(raw)
         except (TypeError, ValueError):
             missing.append(name)
             continue
         scores[name] = max(0.0, min(10.0, score))
+        if matched_key:
+            used_norm_keys.add(matched_key)
 
     error = f"missing/invalid criteria: {missing}" if missing else None
     return scores, error
 
 
 def weighted_score(scores: dict[str, float], rubric: Rubric) -> float | None:
-    if len(scores) != len(rubric.criteria):
+    """Weighted mean over whichever criteria are present in `scores`, renormalized by
+    their weights — partial credit for a partially-matched iteration rather than an
+    all-or-nothing None whenever a single criterion didn't match (see
+    parse_judge_response). Returns None only when nothing matched at all."""
+    matched = [c for c in rubric.criteria if c.name_ko in scores]
+    if not matched:
         return None
-    total_weight = sum(c.weight for c in rubric.criteria)
+    total_weight = sum(c.weight for c in matched)
     if total_weight == 0:
         return None
-    return sum(c.weight * scores[c.name_ko] for c in rubric.criteria) / total_weight
+    return sum(c.weight * scores[c.name_ko] for c in matched) / total_weight
 
 
 # --------------------------------------------------------------------------
@@ -227,6 +255,7 @@ async def judge_record(record: GenerationRecord, item: Item, rubric: Rubric, set
 
     context, judge_notes_ko = render_context(record, item)
     judge_aggs: list[JudgeAggregate] = []
+    judges_failed: list[str] = []
     for judge_model in settings.judges:
         iterations = [
             await _judge_once(context, judge_notes_ko, rubric, judge_model, settings)
@@ -236,6 +265,12 @@ async def judge_record(record: GenerationRecord, item: Item, rubric: Rubric, set
         mean = statistics.fmean(valid) if valid else None
         std = statistics.pstdev(valid) if len(valid) > 1 else (0.0 if valid else None)
         judge_aggs.append(JudgeAggregate(judge=judge_model, iterations=iterations, mean=mean, std=std))
+        if mean is None:
+            judges_failed.append(judge_model)
+            logger.warning(
+                "judge=%s produced zero parseable iterations for item=%s track=%d",
+                judge_model, record.item_id, record.track,
+            )
 
     judge_means = [j.mean for j in judge_aggs if j.mean is not None]
     final_mean = statistics.fmean(judge_means) if judge_means else None
@@ -244,6 +279,7 @@ async def judge_record(record: GenerationRecord, item: Item, rubric: Rubric, set
     return RubricResult(
         item_id=record.item_id, track=record.track, variant=record.variant, model=record.model,
         judges=judge_aggs, final_mean=final_mean, judge_disagreement_std=disagreement,
+        judges_failed=judges_failed,
     )
 
 

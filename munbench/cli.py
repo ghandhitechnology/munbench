@@ -84,17 +84,19 @@ async def _check_env_async(models: list[str]) -> None:
         raise EnvCheckError(problems)
 
 
-async def _with_env_check(models: list[str], coro):
-    """Run the env check, then the stage's coroutine, in the same event loop."""
-    await _check_env_async(models)
-    return await coro
-
-
-def _run_stage(models: list[str], coro):
+def _run_stage(models: list[str], stage_factory):
     """asyncio.run() wrapper shared by generate/judge: env-checks `models` first and
-    turns a failed check into a clean CLI exit instead of a burned API/CLI call."""
+    only creates the stage's coroutine (via `stage_factory`, a zero-arg callable) once
+    the check passes. `stage_factory` must not be called before the check succeeds -
+    building the coroutine eagerly and only conditionally awaiting it leaves an
+    unawaited coroutine object (and a RuntimeWarning) on the failure path."""
+
+    async def _inner():
+        await _check_env_async(models)
+        return await stage_factory()
+
     try:
-        return asyncio.run(_with_env_check(models, coro))
+        return asyncio.run(_inner())
     except EnvCheckError as e:
         console.print("[red]Environment check failed:[/red]")
         for line in e.lines:
@@ -115,7 +117,7 @@ def generate(
         console.print("[red]No models specified. Use --models or set `models` in munbench.yaml.[/red]")
         raise typer.Exit(1)
     tracks = _parse_tracks(track)
-    out_paths = _run_stage(use_models, generate_mod.run_generation(use_models, tracks, settings))
+    out_paths = _run_stage(use_models, lambda: generate_mod.run_generation(use_models, tracks, settings))
     for model, path in out_paths.items():
         console.print(f"[green]{model}[/green] -> {path}")
 
@@ -135,14 +137,15 @@ def judge(
 
     if mode == "rubric":
         out_paths = _run_stage(
-            list(use_models) + settings.judges, judge_rubric.run_rubric_for_models(use_models, settings)
+            list(use_models) + settings.judges,
+            lambda: judge_rubric.run_rubric_for_models(use_models, settings),
         )
         for model, path in out_paths.items():
             console.print(f"[green]{model}[/green] -> {path}")
     elif mode == "pairwise":
         comparisons = _run_stage(
             list(use_models) + settings.judges + settings.pairwise.anchors,
-            judge_pairwise.run_pairwise_judging(use_models, settings),
+            lambda: judge_pairwise.run_pairwise_judging(use_models, settings),
         )
         judge_pairwise.write_comparisons(comparisons, settings.paths.pairwise_comparisons)
         console.print(f"[green]wrote {len(comparisons)} comparisons[/green] -> {settings.paths.pairwise_comparisons}")
@@ -207,6 +210,50 @@ def validate_data(config: Path = CONFIG_OPTION) -> None:
         console.print(f"\n[red]{len(errors)} data file(s) failed validation.[/red]")
         raise typer.Exit(1)
     console.print("\n[green]All data files valid.[/green]")
+
+
+@app.command()
+def run(
+    track: str = typer.Option("all", "--track", help="'all', '1', '2', or '3'"),
+    models: list[str] | None = MODELS_OPTION,
+    config: Path = CONFIG_OPTION,
+    skip_generate: bool = typer.Option(False, "--skip-generate", help="Resume: skip generation"),
+    skip_rubric: bool = typer.Option(False, "--skip-rubric", help="Resume: skip rubric judging"),
+    skip_pairwise: bool = typer.Option(False, "--skip-pairwise", help="Resume: skip pairwise judging"),
+    skip_elo: bool = typer.Option(False, "--skip-elo", help="Resume: skip Elo fitting"),
+    skip_report: bool = typer.Option(False, "--skip-report", help="Resume: skip the leaderboard"),
+) -> None:
+    """Run the full pipeline in order: validate-data -> generate -> judge rubric ->
+    judge pairwise -> elo -> report. Stops with a clear message on the first stage
+    that fails; --skip-* flags let you resume a partial run without redoing earlier,
+    already-completed stages."""
+    settings = _load_settings(config)
+    use_models = models or settings.models
+    if not use_models:
+        console.print("[red]No models specified. Use --models or set `models` in munbench.yaml.[/red]")
+        raise typer.Exit(1)
+
+    stages = [
+        ("validate-data", False, lambda: validate_data(config=config)),
+        ("generate", skip_generate, lambda: generate(track=track, models=use_models, config=config)),
+        ("judge --mode rubric", skip_rubric, lambda: judge(mode="rubric", models=use_models, config=config)),
+        ("judge --mode pairwise", skip_pairwise, lambda: judge(mode="pairwise", models=use_models, config=config)),
+        ("elo", skip_elo, lambda: elo(config=config)),
+        ("report", skip_report, lambda: report(models=use_models, config=config)),
+    ]
+    for name, skip, action in stages:
+        if skip:
+            console.print(f"[yellow]skip[/yellow] {name}")
+            continue
+        console.print(f"\n[bold]== {name} ==[/bold]")
+        try:
+            action()
+        except typer.Exit as e:
+            if e.exit_code != 0:
+                console.print(f"[red]Stage '{name}' failed (exit {e.exit_code}); stopping `munbench run`.[/red]")
+                raise
+
+    console.print("\n[green]munbench run complete.[/green]")
 
 
 if __name__ == "__main__":

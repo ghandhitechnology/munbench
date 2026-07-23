@@ -7,10 +7,13 @@ from pathlib import Path
 import yaml
 from pydantic import BaseModel, Field
 
+# openrouter/-prefixed so the single-key quickstart (only OPENROUTER_API_KEY set)
+# works out of the box even if a user's munbench.yaml omits `judges` entirely —
+# see README "single-key setup".
 DEFAULT_JUDGES = [
-    "gpt-5",
-    "gemini/gemini-2.5-pro",
-    "anthropic/claude-sonnet-5",
+    "openrouter/openai/gpt-5",
+    "openrouter/google/gemini-2.5-pro",
+    "openrouter/anthropic/claude-sonnet-5",
 ]
 
 

@@ -47,8 +47,8 @@ judges:
 rubric_iterations: 3
 
 pairwise:
-  enabled: true
-  truncate_chars: 4000
+  enabled: true  # false disables the whole pairwise/Elo pass (0 comparisons, logged not errored)
+  truncate_chars: 4000  # both sides of a comparison are truncated to this many chars before judging (kills length bias)
   # Anchor models are pinned to a fixed Elo rating (see elo.py) and every
   # tested model is compared against every anchor.
   # Anchors must be in `models` (their generations are what anchors compare
@@ -72,8 +72,8 @@ concurrency: 8
 # rate limits are tighter than API rate limits.
 cli_concurrency: 2
 max_retries: 3
-retry_backoff_seconds: 2.0
+retry_backoff_seconds: 2.0  # exponential backoff base (seconds) between retries
 
 paths:
-  data_dir: data
-  results_dir: results
+  data_dir: data       # where data/items/, data/rubrics/, data/slop_list.json are read from
+  results_dir: results  # where every pipeline stage writes its output

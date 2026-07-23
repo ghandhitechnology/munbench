@@ -31,7 +31,7 @@ def slop_hits_per_1000_chars(text: str, slop: SlopList) -> float:
 
 @dataclass
 class RepetitionMetrics:
-    distinct_trigram_ratio: float  # unique trigrams / total trigrams, in [0, 1]
+    distinct_trigram_ratio: float | None  # unique trigrams / total trigrams, in [0, 1]; None if too short to measure
     longest_repeated_substring_len: int
     has_long_repeat: bool  # flag: a suspiciously long verbatim repeat exists
 
@@ -43,10 +43,14 @@ def _char_trigrams(text: str) -> list[str]:
     return [text[i : i + 3] for i in range(len(text) - 2)]
 
 
-def distinct_trigram_ratio(text: str) -> float:
+def distinct_trigram_ratio(text: str) -> float | None:
+    """Unique/total trigram ratio, or None for text too short to have any trigram
+    (< 3 non-whitespace-collapsed chars) — that's insufficient signal to call "diverse",
+    not the maximum-diversity case, so callers should exclude it from aggregation
+    rather than average in a sentinel 1.0."""
     trigrams = _char_trigrams(text)
     if not trigrams:
-        return 1.0
+        return None
     return len(set(trigrams)) / len(trigrams)
 
 
@@ -121,33 +125,75 @@ def language_consistency_flag(text: str, threshold: float = 0.02) -> tuple[float
 # --------------------------------------------------------------------------
 # Length-spec compliance
 # --------------------------------------------------------------------------
+#
+# Track 2's poem items (시/자유시) specify length in 행 (lines) or 연 (stanzas)
+# instead of 자 (characters), e.g. "12~20행", "3~5연 (총 12~30행 내외)",
+# "4~6연 (각 연 4~5행, 총 16~30행)". A "총 X~Y행" sub-clause, when present, is the
+# most reliable bound (it's an explicit total regardless of stanza structure), so
+# it's checked first; a bare "X~Y행" or "X~Y연" is checked next.
 
-# Matches Korean length specs like "600~1200자", "600-1200자", "약 800자", "800자 내외"
-_RANGE_RE = re.compile(r"(\d+)\s*[~\-–]\s*(\d+)\s*자")
-_APPROX_RE = re.compile(r"(?:약\s*)?(\d+)\s*자\s*(?:내외|안팎)?")
+LengthUnit = str  # "char" | "line" | "stanza"
+
+_TOTAL_LINES_RE = re.compile(r"총\s*(\d+)\s*[~\-–]\s*(\d+)\s*행")
+_CHAR_RANGE_RE = re.compile(r"(\d+)\s*[~\-–]\s*(\d+)\s*자")
+_LINE_RANGE_RE = re.compile(r"(\d+)\s*[~\-–]\s*(\d+)\s*행")
+_STANZA_RANGE_RE = re.compile(r"(\d+)\s*[~\-–]\s*(\d+)\s*연")
+_CHAR_APPROX_RE = re.compile(r"(?:약\s*)?(\d+)\s*자\s*(?:내외|안팎)?")
 
 
-def parse_length_spec(spec: str) -> tuple[int, int] | None:
-    """Parse a Korean length spec string into an (min, max) inclusive char-count range.
+def _ordered(unit: LengthUnit, lo: int, hi: int) -> tuple[LengthUnit, int, int]:
+    return (unit, lo, hi) if lo <= hi else (unit, hi, lo)
 
-    Returns None if the spec can't be parsed (caller should treat as unconstrained).
+
+def parse_length_spec(spec: str) -> tuple[LengthUnit, int, int] | None:
+    """Parse a Korean length spec string into (unit, min, max) inclusive bounds, unit
+    being "char", "line", or "stanza" depending on what the spec actually counts.
+
+    Returns None if the spec can't be parsed at all (caller should exclude it from
+    compliance aggregation entirely — never treat "unparsable" as "non-compliant").
     """
-    m = _RANGE_RE.search(spec)
+    m = _TOTAL_LINES_RE.search(spec)
     if m:
-        lo, hi = int(m.group(1)), int(m.group(2))
-        return (lo, hi) if lo <= hi else (hi, lo)
-    m = _APPROX_RE.search(spec)
+        return _ordered("line", int(m.group(1)), int(m.group(2)))
+    m = _CHAR_RANGE_RE.search(spec)
+    if m:
+        return _ordered("char", int(m.group(1)), int(m.group(2)))
+    m = _LINE_RANGE_RE.search(spec)
+    if m:
+        return _ordered("line", int(m.group(1)), int(m.group(2)))
+    m = _STANZA_RANGE_RE.search(spec)
+    if m:
+        return _ordered("stanza", int(m.group(1)), int(m.group(2)))
+    m = _CHAR_APPROX_RE.search(spec)
     if m:
         n = int(m.group(1))
         tolerance = max(round(n * 0.2), 50)
-        return (max(n - tolerance, 0), n + tolerance)
+        return ("char", max(n - tolerance, 0), n + tolerance)
     return None
 
 
+def _count_lines(text: str) -> int:
+    return sum(1 for line in text.splitlines() if line.strip())
+
+
+def _count_stanzas(text: str) -> int:
+    stanzas = re.split(r"\n\s*\n+", text.strip())
+    return sum(1 for s in stanzas if s.strip())
+
+
+def measure_length(text: str, unit: LengthUnit) -> int:
+    if unit == "line":
+        return _count_lines(text)
+    if unit == "stanza":
+        return _count_stanzas(text)
+    return len(text)
+
+
 def length_compliance(text: str, spec: str) -> bool | None:
-    """Whether len(text) falls within the parsed length_spec range. None if spec unparsable."""
-    bounds = parse_length_spec(spec)
-    if bounds is None:
+    """Whether text falls within the parsed length_spec range (measured in whatever
+    unit the spec uses — chars, lines, or stanzas). None if spec unparsable."""
+    parsed = parse_length_spec(spec)
+    if parsed is None:
         return None
-    lo, hi = bounds
-    return lo <= len(text) <= hi
+    unit, lo, hi = parsed
+    return lo <= measure_length(text, unit) <= hi
