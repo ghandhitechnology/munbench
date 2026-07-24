@@ -265,15 +265,21 @@ async def _probe_codex_cli() -> str | None:
 # --------------------------------------------------------------------------
 
 
+VALID_EFFORTS = {"none", "minimal", "low", "medium", "high", "xhigh", "max"}
+
+
 def split_effort(model: str) -> tuple[str, str | None]:
     """Split an optional reasoning-effort suffix off a model id:
-    "openrouter/x/y@high" -> ("openrouter/x/y", "high"). "max" maps to "high",
-    the top documented OpenRouter effort level."""
+    "openrouter/x/y@max" -> ("openrouter/x/y", "max"). Passed through verbatim —
+    OpenRouter documents the full ladder up to "max" and maps unsupported levels
+    to the nearest one per provider, so the harness must not second-guess it."""
     if "@" not in model:
         return model, None
     base, effort = model.rsplit("@", 1)
     effort = effort.strip().lower()
-    return base, "high" if effort == "max" else effort
+    if effort not in VALID_EFFORTS:
+        raise ValueError(f"unknown reasoning effort {effort!r} in model id {model!r} (valid: {sorted(VALID_EFFORTS)})")
+    return base, effort
 
 
 async def _complete_litellm(

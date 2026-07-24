@@ -326,10 +326,13 @@ covering all six forms, 24 nuance tasks covering all four families),
 yielding 60 records per model including contrast variants --- 780 scored
 samples total, with zero generation failures and zero rubric-judging
 failures. Reasoning-capable models ran at the provider's highest
-documented reasoning-effort setting.\footnote{Two models were requested
-at ``max''; the serving layer maps this to \texttt{high}, its top
-documented level, so all reasoning models ran at effectively the same
-setting.} Judges were Claude Opus~4.6, Gemini 3.6 Flash, and GPT-5.6
+documented reasoning-effort setting.\footnote{Two models (Kimi K3, GLM 5.2)
+were configured for ``max'' effort, but a since-removed normalization in
+our harness sent \texttt{high} instead; every reasoning model in this
+study therefore ran at effort \texttt{high}. The serving layer
+translates \texttt{high} per provider (a thinking-token budget for
+Anthropic models, \texttt{thinkingLevel} for Gemini), so levels are
+comparable but not identical across providers.} Judges were Claude Opus~4.6, Gemini 3.6 Flash, and GPT-5.6
 Luna, one rubric iteration each. The two API-routed judges performed the
 pairwise pass: 420 pairs $\times$ 2 judges $=$ 840 verdicts, each
 verdict averaging two label orders (1{,}680 judge calls). Of these

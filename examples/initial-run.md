@@ -22,14 +22,17 @@ in API credits + one Claude membership doing 780 free judge calls.
 | 3 | **GPT-5.6 Sol** | high | **8.27** | 1515 | 8.57 | 7.51 | 8.73 | 1.4% |
 | 4 | **GPT-5.6 Luna** ⚓ | — | **8.12** | 1200 | 8.26 | 7.87 | 8.24 | 0.0% |
 | 5 | **GPT-5.6 Terra** | high | **8.07** | 1444 | 8.73 | 7.01 | 8.46 | 0.0% |
-| 6 | **Kimi K3** | max | **7.92** | 1278 | 8.16 | 7.27 | 8.34 | 2.8% |
+| 6 | **Kimi K3** | high* | **7.92** | 1278 | 8.16 | 7.27 | 8.34 | 2.8% |
 | 7 | **Claude Sonnet 5** | high | **7.72** | 1341 | 8.27 | 6.30 | 8.58 | 0.0% |
 | 8 | **DeepSeek V4 Pro** | high | **7.39** | 1245 | 7.87 | 6.23 | 8.08 | 4.7% |
 | 9 | **Gemini 3.6 Flash** | high | **6.84** | 1118 | 7.04 | 5.00 | 8.48 | 5.1% |
 | 10 | **Grok 4.5** | high | **6.78** | 1241 | 6.43 | 6.91 | 6.99 | 19.8% |
-| 11 | **GLM 5.2** | max | **6.59** | 1222 | 7.71 | 5.37 | 6.68 | 3.2% |
+| 11 | **GLM 5.2** | high* | **6.59** | 1222 | 7.71 | 5.37 | 6.68 | 3.2% |
 | 12 | **MiniMax M3** | — | **5.43** | 1171 | 7.84 | 1.67 | 6.79 | 8.3% |
 | 13 | **Solar Pro 3** ⚓ | — | **3.41** | 1200 | 3.21 | 2.39 | 4.62 | 14.0% |
+
+\* Requested at `max`; a since-removed harness normalization sent `high` — both models actually
+ran at effort `high` (see paper footnote).
 
 † Elo from a capped pairwise pass; ⚓ = anchor, **pinned at 1200 by definition** (their Elo is the
 reference scale, not a measurement — read their strength from the rubric column).
@@ -42,12 +45,12 @@ Claude Opus 4.8   high  8.48 █████████████████
 GPT-5.6 Sol       high  8.27 ██████████████████████████████████████████▌
 GPT-5.6 Luna      —     8.12 █████████████████████████████████████████▊
 GPT-5.6 Terra     high  8.07 █████████████████████████████████████████▌
-Kimi K3           max   7.92 ████████████████████████████████████████▊
+Kimi K3           high* 7.92 ████████████████████████████████████████▊
 Claude Sonnet 5   high  7.72 ███████████████████████████████████████▋
 DeepSeek V4 Pro   high  7.39 ██████████████████████████████████████
 Gemini 3.6 Flash  high  6.84 ███████████████████████████████████▏
 Grok 4.5          high  6.78 ██████████████████████████████████▊
-GLM 5.2           max   6.59 █████████████████████████████████▉
+GLM 5.2           high* 6.59 █████████████████████████████████▉
 MiniMax M3        —     5.43 ███████████████████████████▉
 Solar Pro 3       —     3.41 █████████████████▌
                              0        2        4        6        8       10
