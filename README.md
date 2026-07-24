@@ -6,7 +6,7 @@
 
 > 📊 **First results are in:** 13 models ranked — [examples/initial-run.md](./examples/initial-run.md)
 
-MunBench is a benchmark for what almost no benchmark measures: whether an LLM can actually *write* in Korean — with emotional intelligence, literary craft, and the cultural instincts that separate a fluent model from one that merely knows the grammar. Not "pick the right answer about Korean culture." Actually navigate a 회식-politics minefield, write a poem about loss without saying 슬프다, and know when "아니야 괜찮아" means anything but 괜찮아.
+MunBench is a benchmark for what almost no benchmark measures: whether an LLM can actually *write* in Korean.Emotional Intelligence, Literary craft, and the Cultural Instincts separate a fluent model from one that merely knows the grammar.It makes the model actually navigate a 회식-politics minefield, write a poem about loss without saying 슬프다, and know when "아니야 괜찮아" means anything but 괜찮아.
 
 ## Why another benchmark?
 
@@ -17,11 +17,11 @@ We surveyed 40+ existing benchmarks before building this one (receipts in [`exis
 - English EQ and creative-writing benchmarks (EQ-Bench 3, Creative Writing v3) have excellent methodology and zero Korean grounding.
 - And Nunchi-Bench delivered the killer finding: a model's factual score on Korean culture questions **barely correlates** with whether it applies that culture correctly in open-ended scenarios. Knowing *about* 눈치 is not having it.
 
-The intersection — EQ × creative writing × Korean nuance, evaluated generatively — was empty. MunBench fills it. All 158 items were authored natively in Korean (never translated), critic-reviewed, and each one is designed to *split the field*: an item that every model aces teaches us nothing.
+The intersection of the benchmarks, EQ combined with creative writing plus Korean nuance, evaluated generatively, was empty. MunBench fills it. All 158 items were authored natively in Korean (never translated), critic-reviewed, and each one is designed to *split the field*: an item that every model aces teaches us nothing.
 
 ## The three tracks
 
-### Track 1 — 감정 (Korean EQ) · 50 scenarios
+### Track 1  감정 (Korean EQ) · 50 scenarios
 
 Multi-turn roleplay through emotionally loaded, very Korean situations. The model plays a character; the other party's three turns are **pre-scripted** (written to stay coherent after any plausible reply), so every model walks into the identical conversation. After the roleplay, an out-of-character analysis question: *what was that person actually feeling?*
 
@@ -29,19 +29,19 @@ A taste: you're 김대리. Your 팀장 just found out the team had a 회식 with
 
 > "아니 뭐 서운하다는 건 아니고. 원래 젊은 사람들끼리 편하게 노는 게 낫지… 근데 그래도 '팀장님도 한잔 하실래요' 하고 한 번쯤 물어봐 주는 게 예의는 예의 아닌가 싶어서. 하하, 내가 꼰대인가?"
 
-He denies being hurt twice, then insists on buying you coffee. A strong model reads the 서운함 under the denial, leaves his 체면 intact, and signals he'll be included next time — without groveling, without naming his feelings at him, and without lying that everyone talked about him all night. Scenarios span 직장, 가족, 친구·연애, 이웃·서비스, 학교·선후배, each tagged with the phenomena it stresses: 눈치, 정, 체면, 존댓말 pressure, 반어, 갑을관계.
+He denies being hurt twice, then insists on buying you coffee. A strong model reads the 서운함 under the denial, leaves his 체면 intact, and signals he'll be included next time, all without groveling, without naming his feelings at him, and without lying that everyone talked about him all night. Scenarios span 직장, 가족, 친구·연애, 이웃·서비스, 학교·선후배, each tagged with the phenomena it stresses: 눈치, 정, 체면, 존댓말 pressure, 반어, 갑을관계.
 
-### Track 2 — 문학 (Creative writing) · 48 prompts
+### Track 2  문학 (Creative writing) · 48 prompts
 
 Short-form commissions (mostly 600–1,200자) across six forms: 단편소설 장면, 수필, 시, 대화문, 장르물, and constraint stories with mandatory unrelated elements. Every prompt targets a documented LLM weakness:
 
-- Write a school essay in an actual 12-year-old's voice — not an adult novelist doing precocious-child cosplay.
+- Write a school essay in an actual 12-year-old's voice, like acutally like a 12 year old, not an adult novelist doing precocious-child cosplay.
 - A poem about someone now gone, where the person may only appear through what they left behind: 두 개였다가 하나가 된 것, 이제 아무도 끄지 않는 것.
 - A granddaughter clearing out her late grandmother's room — with direct emotion statements ("보고 싶다", tears, wailing) **banned**. Objects and silence only.
 
 The enemy here is 신파 — the melodrama reflex. Restraint scores; slop doesn't.
 
-### Track 3 — 결 (Nuance & culture) · 60 tasks
+### Track 3  결 (Nuance & culture) · 60 tasks
 
 The Korean-specific machinery, tested in generation:
 
