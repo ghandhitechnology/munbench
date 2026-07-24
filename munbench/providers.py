@@ -210,8 +210,9 @@ async def _probe_claude_cli() -> str | None:
 
 def build_codex_cli_argv(model_id: str, prompt: str, output_path: str) -> list[str]:
     # exec: non-interactive automation subcommand (as opposed to the interactive TUI).
-    # --sandbox read-only + --ask-for-approval never: most restricted/non-interactive
-    #   combination available (this is pure text generation, not code execution).
+    # --sandbox read-only: most restricted mode (pure text generation, not code
+    #   execution). --ephemeral: no session file persisted per benchmark call.
+    #   (--ask-for-approval was removed from `codex exec` as of CLI 0.145.0.)
     # --skip-git-repo-check: harness may run from a directory codex doesn't trust.
     # --output-last-message <file>: simplest way to get the final agent message as
     #   plain text, without parsing a --json event stream.
@@ -219,8 +220,8 @@ def build_codex_cli_argv(model_id: str, prompt: str, output_path: str) -> list[s
         "codex", "exec",
         "--model", model_id,
         "--sandbox", "read-only",
-        "--ask-for-approval", "never",
         "--skip-git-repo-check",
+        "--ephemeral",
         "--output-last-message", output_path,
         prompt,
     ]

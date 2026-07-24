@@ -79,7 +79,7 @@ def test_build_codex_cli_argv_flags():
     argv = providers.build_codex_cli_argv("gpt-5.6-sol", "hello", "/tmp/out.txt")
     assert argv[:2] == ["codex", "exec"]
     assert "--sandbox" in argv and argv[argv.index("--sandbox") + 1] == "read-only"
-    assert "--ask-for-approval" in argv and argv[argv.index("--ask-for-approval") + 1] == "never"
+    assert "--ephemeral" in argv and "--ask-for-approval" not in argv
     assert "--skip-git-repo-check" in argv
     assert "--output-last-message" in argv and argv[argv.index("--output-last-message") + 1] == "/tmp/out.txt"
     assert argv[-1] == "hello"
