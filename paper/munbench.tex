@@ -1,0 +1,522 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+% Compiled locally with Tectonic (XeTeX). For arXiv submission, replace the
+% hangul font with UnBatang (in arXiv's TeX Live via unfonts-core) or submit
+% the compiled PDF.
+\usepackage{fontspec}
+\usepackage{kotex} % Korean text support (xetexko under XeTeX)
+\IfFontExistsTF{Apple SD Gothic Neo}{\setmainhangulfont{Apple SD Gothic Neo}}{}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{natbib}
+\usepackage{url}
+\usepackage{xcolor}
+\usepackage{multirow}
+\usepackage{caption}
+\captionsetup{font=small,labelfont=bf}
+\usepackage[hidelinks]{hyperref}
+
+% NOTE TO AUTHOR: verify the romanization of your name before submission.
+\title{\textbf{MunBench: A Generative Benchmark for Korean Emotional
+Intelligence, Creative Writing, and Cultural Nuance in Large Language Models}}
+\author{Taewook Ha\\
+\texttt{hataewook12@gmail.com}\\
+\small\url{https://github.com/ghandhitechnology/munbench}}
+\date{July 2026}
+
+\newcommand{\ko}[1]{#1}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Korean-language evaluation of large language models (LLMs) is dominated by
+multiple-choice knowledge tests. These are cheap to grade and resistant to
+ambiguity, but they cannot answer the question practitioners actually ask:
+\emph{can this model write well in Korean?} Prior work shows that factual
+knowledge of a culture correlates only weakly with the ability to apply that
+culture in open-ended generation, so multiple-choice scores are a poor proxy.
+We present \textbf{MunBench} (\ko{문벤치}), a fully generative benchmark that
+evaluates three abilities at once: (1)~\emph{emotional intelligence} in
+Korean interpersonal context, tested through multi-turn roleplay scenarios
+built around \ko{눈치} (reading the unstated), \ko{정} (the deep
+affective bond formed over shared time, with its attendant obligations),
+and \ko{체면} (face); (2)~\emph{creative writing}, tested
+through 48 commissions that each target a documented LLM weakness such as
+melodrama and clich\'e; and (3)~\emph{cultural and linguistic nuance},
+tested through honorific-register switching, idiom deployment, sarcasm
+resolution, and paired prompts that reveal whether a model silently defaults
+to Western norms when a Korean setting is implied but not stated. All 158
+items were authored natively in Korean. Scoring combines an ensemble
+rubric, anchored pairwise Elo, and judge-free mechanical metrics that catch
+failure modes LLM judges are known to miss, including code-switching into
+English. In an initial 13-model study, three results stand out. The
+creative-writing track separates models that other tracks cannot: writing
+scores span 1.7--8.2, while eight of thirteen models sit within one point
+of each other on the EQ track. The culture-pair probe finds four models
+whose scores \emph{drop} when a Korean setting is made explicit --- by
+2.8 rubric points in the worst case --- a pattern no culture-specified
+benchmark can see. And a judge-free tripwire catches a frontier model
+code-switching out of Korean in 42\% of nuance-track outputs, a failure
+its rubric scores alone would blur. Benchmark, harness,
+and results are public.
+\end{abstract}
+
+\section{Introduction}
+
+A user who asks an LLM for help in Korean is rarely asking it to answer exam
+questions. They are asking it to write: a reply to a delicate message, a
+eulogy, a cover letter, a story. Whether the model does this \emph{well} in
+Korean --- with the right honorific register, without translated-English
+phrasing, reading what the other person meant rather than what they said ---
+is the ability that matters in practice, and it is almost entirely
+unmeasured.
+
+Korean LLM benchmarks overwhelmingly use multiple-choice formats: KMMLU
+\citep{son2024kmmlu}, HAE-RAE Bench \citep{son2023haerae}, CLIcK
+\citep{kim2024click}, KoBEST \citep{jang2022kobest}, and KorNAT
+\citep{lee2024kornat} all grade selection, not production. This is a
+reasonable design choice for knowledge, but it leaves generation quality
+unmeasured, and there is direct evidence that the two dissociate:
+Nunchi-Bench \citep{nunchibench2025} found that accuracy on factual
+questions about Korean cultural practices correlates only weakly with
+appropriate behavior in open-ended scenarios that depend on those same
+practices. Knowing \emph{about} \ko{눈치} is not the same as having it.
+The few Korean benchmarks that do score generation have used a single
+generic quality scale; LogicKor, the most widely used, was retired after
+frontier models saturated its 0--10 judge rubric. Meanwhile, the
+English-language evaluation community has developed strong methodology for
+exactly this problem --- EQ-Bench~3's judged roleplay with paired
+rubric-and-Elo scoring \citep{paech2023eqbench}, bias controls for LLM
+judges \citep{zheng2023judging}, and reward-model findings from LitBench
+\citep{litbench2025} --- but none of it has been applied to Korean.
+
+MunBench fills this gap. It is, to our knowledge, the first benchmark that
+evaluates Korean \emph{generation} across emotional intelligence, creative
+writing, and cultural nuance simultaneously, with methodology adapted from
+the strongest English-language precedents and grounded in
+Korean-specific failure modes. Our contributions:
+
+\begin{enumerate}
+\item \textbf{A 158-item generative benchmark}, authored natively in Korean
+(zero translated items), spanning three tracks: 50 multi-turn EQ roleplay
+scenarios, 48 creative-writing commissions, and 60 nuance tasks, of which 33
+carry \emph{contrast variants} that isolate specific abilities
+(Section~\ref{sec:design}).
+\item \textbf{A three-layer scoring pipeline} --- ensemble rubric scoring,
+anchored pairwise Elo, and judge-free mechanical metrics --- with position,
+length, and self-preference bias controls, and an explicit code-switching
+penalty motivated by evidence that LLM judges under-detect language mixing
+in Korean text \citep{son2024kudge} (Section~\ref{sec:scoring}).
+\item \textbf{An initial 13-model study} showing that (a) creative writing
+is the discriminating track; (b) four models score \emph{higher} when
+Korean context is implicit than when it is explicit, a pattern consistent
+with explicit Korean framing activating degraded generation; and (c) judge-free metrics
+catch large failure modes (up to 42\% code-switching) that rubric scores
+alone would blur (Section~\ref{sec:results}).
+\end{enumerate}
+
+\section{Related Work}
+
+\paragraph{Korean benchmarks.} KMMLU \citep{son2024kmmlu} builds
+multiple-choice items from original Korean exams rather than translating
+MMLU; HAE-RAE Bench \citep{son2023haerae} probes knowledge that
+English-centric models lack; CLIcK \citep{kim2024click} covers cultural and
+linguistic knowledge from Korean textbooks; KoBALT \citep{kobalt2025}
+covers 24 linguistic phenomena; KorNAT \citep{lee2024kornat} measures
+alignment with Korean population survey distributions. All are
+selection-based. KoBBQ \citep{jin2023kobbq} and related safety datasets
+grade classification. Generation-oriented efforts are rare: LogicKor scored
+free-form Korean with a generic judge rubric (now saturated), and KUDGE
+\citep{son2024kudge} --- a meta-benchmark --- showed that LLM-judge
+reliability on Korean text tracks the judge's English capability and that
+judges systematically miss factual errors and language mixing, a finding
+that directly shaped our judge-free metric layer. KoCoSa
+\citep{kim2024kocosa} showed context-dependent sarcasm is difficult in
+Korean; our subtext tasks adopt this framing. BLEnD \citep{myung2024blend}
+demonstrated the value of separating cultural awareness from language
+competence.
+
+\paragraph{Emotional intelligence and creative writing.} EQ-Bench
+\citep{paech2023eqbench} evolved from emotion-intensity prediction to
+judged multi-turn roleplay (version~3) with paired absolute-rubric and
+pairwise-Elo scoring; we adopt this two-scale design. EmoBench
+\citep{sabour2024emobench} and ToMBench \citep{chen2024tombench} test
+emotional and theory-of-mind reasoning via multiple choice, and ToMBench's
+native-language-first construction (author in the target language, then
+translate for documentation) is the order we follow. For creative writing,
+LitBench \citep{litbench2025} showed that off-the-shelf LLM judges lag
+trained reward models at predicting human preferences and that
+chain-of-thought can \emph{hurt} creative judging; NoveltyBench
+\citep{noveltybench2025} showed aligned models lose output diversity;
+WritingBench \citep{writingbench2025} used per-instance criteria. Judged
+evaluation at scale rests on bias controls established by MT-Bench and
+Chatbot Arena \citep{zheng2023judging,chiang2024arena}: we use both-order
+judging, equal-length truncation, and anonymization throughout.
+
+\section{Benchmark Design}
+\label{sec:design}
+
+MunBench contains 158 items in three tracks. Every item was written
+natively in Korean --- none are translations --- following the
+native-first construction argued for by ToMBench and by the authors of
+KMMLU and CLIcK, who document systematic artifacts in translated
+benchmarks. Every item also carries \ko{채점 유의사항} (judge notes): a
+per-item description of what strong and weak responses look like, which is
+provided to judges at scoring time.
+
+\subsection{Track 1: \ko{감정} --- emotional intelligence (50 scenarios)}
+
+Each scenario places the model in a role within an emotionally charged,
+specifically Korean situation, spanning five domains: workplace, family
+(including in-laws), friends and romance, neighbors and service
+encounters, and school hierarchies. The interlocutor's three turns are
+\emph{pre-scripted} and written to remain coherent after any plausible
+reply, so every model faces an identical conversation --- adopting the
+fixed-turn design of EQ-Bench~3 \citep{paech2023eqbench}. After the
+roleplay, the model answers an out-of-character analysis question about the
+interlocutor's actual mental state. Each item is tagged with the phenomena
+it stresses: \ko{눈치}, \ko{정}, \ko{체면}, honorific-register pressure,
+sarcasm (\ko{반어}), perceived slight (\ko{서운함}), and power asymmetry
+(\ko{갑을관계}).
+
+A representative scenario: the model plays a junior employee whose team
+held a company dinner without the team leader. The leader's scripted turns
+deny being hurt (``\ko{서운하다는 건 아니고}...''), invoke etiquette,
+then insist on buying coffee. Strong responses read the hurt beneath the
+denial without naming it to the leader's face, preserve face, and signal
+future inclusion; the judge notes list characteristic failures ---
+excessive apology, therapist-style emotion labeling
+(``\ko{서운하셨군요}...''), and jumping to a rescheduled dinner as a
+transactional fix.
+
+\subsection{Track 2: \ko{문학} --- creative writing (48 commissions)}
+
+Forty-eight writing commissions in seven forms: short-fiction scene,
+personal essay, poetry, dialogue-driven scene, genre fiction, constraint
+stories with mandatory unrelated elements in the style of
+\citealp{lechmazur2024}, and one dramatic monologue --- mostly
+600--1{,}200 Korean characters. Each
+commission deliberately targets a documented LLM weakness: writing in a
+twelve-year-old's authentic voice rather than an adult's imitation of one;
+conveying loss strictly through objects and absence with direct emotion
+statements banned; resisting \ko{신파} (melodrama). This
+weakness-targeting philosophy follows EQ-Bench Creative Writing v3, whose
+prompts are chosen to expose failure rather than to elicit typical output.
+
+\subsection{Track 3: \ko{결} --- nuance and culture (60 tasks)}
+
+Four task families, 15 items each, all generative:
+
+\begin{itemize}
+\item \textbf{Register switching}: rewrite or continue a scene under a
+changed relationship (\ko{반말} to formal \ko{존댓말}, deferential service
+register, and unscripted cases such as a same-age coworker just met).
+Honorific correctness is scored as its own criterion, never folded into
+fluency, following RULER/VERSE \citep{rulerverse2025}.
+\item \textbf{Idiom deployment}: weave a given proverb or
+four-character idiom (\ko{사자성어}) naturally into a scene ---
+explaining the idiom or announcing it (``\ko{이런 말 있잖아}'') is a
+failure. Trap items use near-miss idioms that models commonly confuse.
+\item \textbf{Culture pairs}: the same task issued twice --- once stating
+the setting is Korea, once leaving it unstated while every name and
+circumstance remains Korean. The probe, adapted from Nunchi-Bench's
+specified-vs.-neutral design \citep{nunchibench2025}, detects models that
+default to Western norms (hugging, first names, Western funeral etiquette)
+when Korean-ness is implicit.
+\item \textbf{Sarcasm and subtext}: respond to a dialogue whose final
+utterance means the opposite of its surface (``\ko{아니야 괜찮아, 일이
+우선이지 뭐}''), in the context-dependent style of KoCoSa
+\citep{kim2024kocosa}. Several items carry a \emph{sincere-version
+control}: the same words in a context where they are genuinely meant, so
+that a model that hallucinates hurt feelings everywhere also fails.
+Over-reading subtext is an emotional-intelligence failure, not a success.
+\end{itemize}
+
+In total, 33 items carry contrast variants: all 15 culture pairs
+(Korea stated vs.\ unstated), 15 idiom items (a de-contextualized control
+prompt), and 3 subtext items (the sincere-version control). Only the
+culture-pair variants feed the specified-vs.-implied delta of
+Section~\ref{sec:results}; the other variants probe different constructs
+and are scored separately. A full run produces exactly 191 outputs per
+model.
+
+\subsection{Item construction and quality control}
+\label{sec:construction}
+
+Items were drafted by a frontier LLM (Claude Opus~4.8) under detailed
+track-specific style guides, in batches by domain or form. Every batch
+then passed an adversarial critique stage: a separate model reviewed each
+batch against six criteria (translated-sounding Korean; whether the target
+phenomenon is actually embedded rather than merely named; discriminative
+power; clich\'e; robustness of pre-scripted turns to arbitrary replies;
+specificity of judge notes), and flagged items were revised by the
+authoring model. The critique stage requested revisions in 14 of 15
+batches. We are explicit that this is \emph{LLM-authored, LLM-audited}
+data --- a deliberate trade-off that bought native-quality volume at low
+cost, with risks discussed in Section~\ref{sec:limitations}.
+
+\section{Scoring}
+\label{sec:scoring}
+
+Every output is scored three independent ways; each layer covers a known
+blind spot of the others.
+
+\subsection{Ensemble rubric (interpretable)}
+
+Each track has a weighted rubric of six to seven Korean-specific criteria
+--- for Track~1: reading \ko{눈치}/\ko{정}/\ko{체면} (weight 0.22),
+emotional granularity (0.18), honorific correctness (0.17), restraint and
+anti-sycophancy (0.16), character consistency (0.15), and situational
+navigation (0.12). A generic single quality score is deliberately avoided:
+it is what saturated LogicKor. An ensemble of three judges from different
+model families scores every criterion 0--10; per-judge scores are stored
+separately so that judge disagreement and self-preference are inspectable,
+and each judge can score repeatedly (configurable iterations) to estimate
+repeatability, following the reporting practice of EQ-Bench~3. Criterion
+names returned by judges are matched with normalization and fuzzy
+fallback, and partially parseable judgments receive renormalized partial
+credit rather than being zeroed. An anti-sycophancy criterion appears in
+every rubric because EQ-flavored benchmarks are especially vulnerable to
+reward-hacking through excessive warmth \citep{paech2023eqbench}.
+
+\subsection{Anchored pairwise Elo (discriminative)}
+
+Absolute rubric scores compress as models improve. The second layer
+therefore asks judges only to choose between two \emph{anonymized} outputs
+for the same item, truncated to equal length (removing length bias), with
+every pair judged in both label orders and averaged (removing position
+bias) \citep{zheng2023judging}. A comparison is discarded --- not
+averaged from one order --- if either order fails, and comparisons in
+which the judge's own model appears as a contestant are excluded from the
+fit entirely: anonymization hides names, not style, and a judge voting on
+its own matchup would inject self-preference directly into the ratings.
+Wins are fitted to Elo ratings with three \emph{anchor} models --- chosen
+to span the ability range, one of them Korean-specialized --- all pinned
+at a common reference rating of 1200. Pinning keeps the scale stable as
+new models are added; because all anchors share one pinned value, an
+anchor's Elo is a reference point rather than a measurement of that
+anchor (anchors' abilities are read from their rubric scores), and
+non-anchor ratings are interpreted relative to the anchor set as a whole.
+Assigning distinct pinned values per anchor is planned for the full-scale
+run.
+
+\subsection{Judge-free mechanical metrics (tripwires)}
+
+Three metrics involve no LLM opinion: (1)~a curated 184-phrase Korean
+``slop'' list of LLM-overused phrasing and translationese
+(\ko{마음 한켠}, \ko{심장이 쿵 내려앉}--, \ko{$\sim$에 다름 아니다}),
+reported as hits per 1{,}000 characters; (2)~$n$-gram repetition and
+length-specification compliance (supporting both character-count and
+line/stanza specifications for poetry); and (3)~a \emph{code-switching
+flag} when Latin characters exceed 2\% of the output's alphabetic
+characters. The last is
+motivated directly by KUDGE's finding that LLM judges under-detect
+language mixing in Korean text \citep{son2024kudge}; our results confirm
+the metric does work an LLM judge layer did not (Section~\ref{sec:results}).
+
+\section{Initial Study}
+\label{sec:results}
+
+\subsection{Setup}
+
+We evaluated 13 models (Table~\ref{tab:main}) on a stratified 47-item
+subset (10 EQ scenarios covering all five domains, 13 writing commissions
+covering all six forms, 24 nuance tasks covering all four families),
+yielding 60 records per model including contrast variants --- 780 scored
+samples total, with zero generation failures and zero rubric-judging
+failures. Reasoning-capable models ran at the provider's highest
+documented reasoning-effort setting.\footnote{Two models were requested
+at ``max''; the serving layer maps this to \texttt{high}, its top
+documented level, so all reasoning models ran at effectively the same
+setting.} Judges were Claude Opus~4.6, Gemini 3.6 Flash, and GPT-5.6
+Luna, one rubric iteration each. The two API-routed judges performed the
+pairwise pass: 420 pairs $\times$ 2 judges $=$ 840 verdicts, each
+verdict averaging two label orders (1{,}680 judge calls). Of these
+verdicts, 135 failed verdict parsing and 134 involved the judge's own
+model as a contestant; both classes were excluded, leaving 571
+fully-order-averaged games in the Elo fit. Anchors were Claude Opus~4.8, Solar Pro~3 (the Korean-specialized
+mid anchor), and GPT-5.6 Luna. Total cost was approximately \$41 in API
+credits plus 780 judge calls routed through a consumer Claude
+subscription. The subset design, single iteration, and judge/contestant
+overlap are budget compromises; Section~\ref{sec:limitations} discusses
+their consequences.
+
+\begin{table}[t]
+\centering
+\small
+\begin{tabular}{@{}lrrrrrr@{}}
+\toprule
+Model & Overall & Elo & \ko{감정} & \ko{문학} & \ko{결} & Code-switch \\
+\midrule
+Claude Fable 5          & \textbf{8.59} & \textbf{1540} & 8.69 & \textbf{8.19} & \textbf{8.87} & 4.7\% \\
+Claude Opus 4.8$^\dagger$ & 8.48 & 1200$^\dagger$ & 8.46 & 8.15 & 8.81 & 1.4\% \\
+GPT-5.6 Sol             & 8.27 & 1515 & 8.57 & 7.51 & 8.73 & 1.4\% \\
+GPT-5.6 Luna$^\dagger$  & 8.12 & 1200$^\dagger$ & 8.26 & 7.87 & 8.24 & 0.0\% \\
+GPT-5.6 Terra           & 8.07 & 1444 & \textbf{8.73} & 7.01 & 8.46 & 0.0\% \\
+Kimi K3                 & 7.92 & 1278 & 8.16 & 7.27 & 8.34 & 2.8\% \\
+Claude Sonnet 5         & 7.72 & 1341 & 8.27 & 6.30 & 8.58 & 0.0\% \\
+DeepSeek V4 Pro         & 7.39 & 1245 & 7.87 & 6.23 & 8.08 & 4.7\% \\
+Gemini 3.6 Flash        & 6.84 & 1118 & 7.04 & 5.00 & 8.48 & 5.1\% \\
+Grok 4.5                & 6.78 & 1241 & 6.43 & 6.91 & 6.99 & 19.8\% \\
+GLM 5.2                 & 6.59 & 1222 & 7.71 & 5.37 & 6.68 & 3.2\% \\
+MiniMax M3              & 5.43 & 1171 & 7.84 & 1.67 & 6.79 & 8.3\% \\
+Solar Pro 3$^\dagger$   & 3.41 & 1200$^\dagger$ & 3.21 & 2.39 & 4.62 & 14.0\% \\
+\bottomrule
+\end{tabular}
+\caption{Initial results. Track columns are 0--10 rubric means; Overall
+is the unweighted mean of the three track means (each item counted once;
+neutral contrast variants excluded). $^\dagger$Anchors share a single
+pinned Elo of 1200 by construction --- a reference point, not a
+measurement of the anchor. Code-switch: share of outputs in which Latin
+characters exceed 2\% of alphabetic characters, averaged over tracks.}
+\label{tab:main}
+\end{table}
+
+\subsection{Findings}
+
+\paragraph{Creative writing is the discriminating track.} On the EQ track,
+eight of thirteen models fall within one rubric point (7.8--8.7); on the
+nuance track, nine fall within one point. Creative writing spans 1.67 to
+8.19. The most dramatic case is MiniMax M3: competitive on EQ roleplay
+(7.84) but collapsing to 1.67 on \ko{문학}, with a quarter of its writing
+outputs code-switching out of Korean --- a model that can hold a Korean
+conversation but cannot sustain Korean literary register. This validates
+the central design bet: conversational competence, cultural knowledge, and
+literary generation are dissociable abilities, and only a generative
+benchmark sees the difference.
+
+\paragraph{The culture-pair probe detects inverted cultural competence.}
+For each of the six true culture-pair tasks in the subset, we compare
+rubric scores when Korea is stated vs.\ implied (idiom and subtext
+contrast variants are excluded --- they are different controls; an early
+version of our aggregation pooled them, which review caught and we fixed
+in the released pipeline). Most models hold small positive deltas (+0.03
+to +0.13): explicit Korean framing helps slightly. Four models go
+\emph{negative} --- GPT-5.6 Luna ($-0.17$), Grok 4.5 ($-0.20$), DeepSeek
+V4 Pro ($-0.24$), and GLM 5.2 ($-2.84$): their output scores \emph{worse}
+when told the setting is Korean. For GLM 5.2 the gap is nearly three
+points, a pattern consistent with explicit Korean framing activating
+degraded generation (forced register, formulaic politeness) rather than
+authentic competence, though transcript-level analysis is needed before a
+causal reading. With six pairs per model these deltas are noisy; the
+full-set run (15 pairs) will tighten them. Either way, the inversion
+pattern is invisible to any benchmark that only asks culture-specified
+questions.
+
+\paragraph{Judge-free tripwires catch what judges blur.} Grok 4.5's
+nuance-track rubric score (6.99) looks like mild weakness; the mechanical
+layer shows 41.7\% of its nuance outputs exceeded the Latin-character
+threshold --- persistent code-switching that per-criterion judge scores
+did not proportionally punish, exactly the under-detection KUDGE
+documented. Solar Pro~3, the only Korean-specialized model available on
+our provider, finished last on every track with 30\% code-switching on EQ
+roleplay --- a surprising result that warrants transcript-level
+inspection before firm conclusions, but which at minimum shows
+``Korean-specialized'' does not imply ``strong at Korean generation.''
+
+\paragraph{Judge ensemble behavior.} Gemini 3.6 Flash scores
+$\sim$1.5 rubric points more generously than Opus 4.6 and Luna, but the
+three judges' \emph{rankings} agree closely, and Flash-as-judge ranked
+Flash-as-contestant ninth --- no self-rescue. The pairwise pass surfaced
+two reliability lessons the rubric pass did not. First, our initial
+pairwise configuration capped judge responses at 512 tokens; Flash,
+which reasons internally by default, truncated 95\% of its verdicts
+mid-JSON, silently reducing the Elo to a single judge's opinion until
+the failure count exposed it --- judge-side token budgets need the same
+headroom as generation. Second, before self-judged matchups were
+excluded, Luna-as-judge voted for Luna-as-contestant in 71\% of its own
+matchups (vs.\ 37.5\% under the other judge), a concrete measurement
+of the self-preference that anonymization alone does not remove. With
+both fixes applied, Fable~5 leads both scales and the top two sit within
+25 Elo points; we treat the top three as statistically indistinguishable
+pending a full-set run.
+
+\section{Limitations}
+\label{sec:limitations}
+
+\begin{itemize}
+\item \textbf{LLM-judged, not yet human-validated.} All scores come from
+LLM judges. We applied the standard bias controls and a judge-free layer,
+but KUDGE's core warning applies to us as well: judge--human agreement on
+Korean text must be measured, not assumed. Every per-sample record
+carries a \texttt{human\_score} field so a native-annotator validation
+pass can be added without schema changes; until then, scores are
+provisional.
+\item \textbf{LLM-authored items.} Items were drafted and audited by
+LLMs (Section~\ref{sec:construction}). This risks a systematic blind
+spot --- items may avoid phenomena the authoring model itself cannot
+produce --- and a family-resemblance advantage for models similar to the
+author. Human-expert item review is the highest-priority follow-up.
+\item \textbf{Judge--contestant overlap.} Two rubric judges (Gemini 3.6
+Flash, GPT-5.6 Luna) are also contestants, and the third (Claude
+Opus~4.6) shares a family with three Claude contestants. Per-judge score
+reporting makes rubric self-preference inspectable, and self-judged
+matchups are excluded from the Elo fit, but family-level style affinity
+is not eliminated.
+\item \textbf{Subset, single-iteration study.} The initial study covers
+47 of 158 items with one rubric iteration per judge; reported means
+inherit cross-item spread and the lenient judge's offset. Pairwise judge
+reliability was uneven (Section~\ref{sec:results}), and the culture-pair
+deltas rest on six pairs per model.
+\item \textbf{Coverage.} One Korean-specialized model was available
+through our provider; HyperCLOVA~X, EXAONE, A.X, and Mi:dm require direct
+provider integrations and remain future work, as does Muse Spark 1.1
+(regionally unavailable).
+\item \textbf{Public test set.} MunBench items are public and can be
+trained on; contamination checks matter for models released after this
+repository, and a private refresh split is planned.
+\end{itemize}
+
+\section{Conclusion}
+
+MunBench demonstrates that generative evaluation of Korean is both
+feasible and necessary: the abilities it measures --- emotional reading in
+Korean context, literary restraint, register control, and cultural
+default behavior --- dissociate sharply from each other and from the
+knowledge scores that dominate Korean leaderboards. The benchmark's most
+important findings so far are structural rather than a ranking: creative
+writing is where models separate; cultural framing can \emph{hurt} models
+whose Korean is a costume over English; and mechanical tripwires remain
+necessary alongside LLM judges. We release all items, rubrics, the slop
+list, the evaluation harness, and initial results, and invite
+native-speaker validation as the next step.
+
+\bibliographystyle{plainnat}
+\bibliography{references}
+
+\appendix
+
+\section{Sample items}
+\label{app:items}
+
+\paragraph{Track 1 (abridged).} Scenario \emph{\ko{회식 사진 속 빈자리}}:
+the model plays \ko{김대리}; the team leader discovered a team dinner held
+without him. Scripted turn 2: ``\ko{아니 뭐 서운하다는 건 아니고. 원래
+젊은 사람들끼리 편하게 노는 게 낫지, 나 껴 있으면 불편하잖아. 근데
+그래도 `팀장님도 한잔 하실래요' 하고 한 번쯤 물어봐 주는 게 예의는 예의
+아닌가 싶어서. 하하, 내가 꼰대인가?}'' Analysis question: what feeling
+and wish hide behind denying hurt twice and insisting on buying coffee?
+
+\paragraph{Track 2 (abridged).} Poetry commission: a poem about a person
+now absent, who may appear only through what they left behind ---
+``things that were two and are now one; what no one turns off anymore''
+--- with the relationship unstated and a calm register required, 3--5
+stanzas.
+
+\paragraph{Track 3 culture pair (abridged).} Specified: ``Write a short
+scene set in Korea: three university friends visit the funeral hall
+(\ko{장례식장}) for their friend \ko{지훈}'s father...'' Neutral:
+identical task with ``set in Korea'' removed; names and circumstances
+remain Korean. Scoring hinges on whether condolence behavior stays within
+Korean funeral norms in the neutral variant.
+
+\section{Rubric example (Track 2)}
+
+Restraint and sincerity, avoiding melodrama (0.22); freshness of imagery,
+avoiding clich\'e and LLM slop (0.20); voice and style (0.18);
+showing-not-telling and subtext (0.15); grammar and register correctness
+(0.10); adherence to form and constraints (0.10); resonance and
+structural completeness (0.05).
+
+\end{document}

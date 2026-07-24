@@ -73,7 +73,7 @@ def test_culture_pair_stats_computes_delta():
         _rubric("t3-002", 3, "specified", 6.0),
         _rubric("t3-002", 3, "neutral", 6.0),
     ]
-    stats = _culture_pair_stats(rubrics)
+    stats = _culture_pair_stats(rubrics, {"t3-001", "t3-002"})
     assert stats.n_pairs == 2
     assert stats.specified_mean == 7.0  # (8+6)/2
     assert stats.neutral_mean == 5.0  # (4+6)/2
@@ -82,7 +82,7 @@ def test_culture_pair_stats_computes_delta():
 
 def test_culture_pair_stats_ignores_unpaired_items():
     rubrics = [_rubric("t3-003", 3, "specified", 9.0)]  # no neutral counterpart
-    stats = _culture_pair_stats(rubrics)
+    stats = _culture_pair_stats(rubrics, {"t3-003"})
     assert stats.n_pairs == 0
     assert stats.specified_mean is None
     assert stats.delta is None
@@ -162,6 +162,7 @@ def test_build_leaderboard_end_to_end(tmp_path):
         encoding="utf-8",
     )
     (data_dir / "slop_list.json").write_text(json.dumps({"phrases": []}), encoding="utf-8")
+    (data_dir / "items" / "track3_nuance.json").write_text(json.dumps([]), encoding="utf-8")
 
     settings = Settings(models=["fake-model"])
     settings.paths.data_dir = data_dir

@@ -17,13 +17,29 @@ Game = tuple[str, str, float]  # (model_a, model_b, score_a in [0, 1])
 ANCHOR_RATING = 1200.0
 
 
+def _base_id(model: str) -> str:
+    """Model id without any @effort suffix, for judge/participant identity checks."""
+    return model.rsplit("@", 1)[0] if "@" in model else model
+
+
 def games_from_comparisons(comparisons: list[PairwiseComparison]) -> list[Game]:
     """Only comparisons with a score AND no recorded error enter the Elo fit. In
     practice judge_pairwise's _score_from_winners already guarantees score_a is None
     whenever either label-order failed, so this is a belt-and-suspenders check on the
     consumption side against the position-bias-cancellation invariant, not just an
-    internal one."""
-    return [(c.model_a, c.model_b, c.score_a) for c in comparisons if c.score_a is not None and c.error is None]
+    internal one.
+
+    Comparisons where the judge's own model (ignoring @effort suffix) is one of the
+    two contestants are excluded entirely: anonymization hides names but not style,
+    and a judge voting on its own matchup injects self-preference straight into the
+    Elo fit with no counterbalancing signal."""
+    return [
+        (c.model_a, c.model_b, c.score_a)
+        for c in comparisons
+        if c.score_a is not None
+        and c.error is None
+        and _base_id(c.judge) not in (_base_id(c.model_a), _base_id(c.model_b))
+    ]
 
 
 def fit_elo(

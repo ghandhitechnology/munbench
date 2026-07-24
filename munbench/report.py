@@ -12,7 +12,7 @@ from rich.table import Table
 from munbench.config import Settings
 from munbench.elo import load_elo
 from munbench.generate import GenerationRecord, load_generations, record_text
-from munbench.items import SlopList, load_slop_list, load_track2
+from munbench.items import SlopList, load_slop_list, load_track2, load_track3
 from munbench.judge_rubric import RubricResult, load_rubric_results
 from munbench.metrics import (
     distinct_trigram_ratio,
@@ -155,16 +155,24 @@ def _per_judge_means(rubric_results: list[RubricResult], judges: list[str]) -> d
     return means
 
 
-def _culture_pair_stats(rubric_results: list[RubricResult]) -> CulturePairStats:
+def _culture_pair_stats(
+    rubric_results: list[RubricResult], culture_pair_ids: set[str]
+) -> CulturePairStats:
+    """Specified-vs-neutral delta over TRUE culture-pair items only. Idiom and
+    subtext items also carry neutral variants, but those are de-contextualized /
+    sincere-version controls — a different construct that must not pollute the
+    Korea-stated-vs-implied delta."""
     specified = {
         r.item_id: r.final_mean
         for r in rubric_results
-        if r.track == 3 and r.variant == "specified" and r.final_mean is not None
+        if r.track == 3 and r.item_id in culture_pair_ids
+        and r.variant == "specified" and r.final_mean is not None
     }
     neutral = {
         r.item_id: r.final_mean
         for r in rubric_results
-        if r.track == 3 and r.variant == "neutral" and r.final_mean is not None
+        if r.track == 3 and r.item_id in culture_pair_ids
+        and r.variant == "neutral" and r.final_mean is not None
     }
     paired_ids = sorted(set(specified) & set(neutral))
     if not paired_ids:
@@ -176,6 +184,9 @@ def _culture_pair_stats(rubric_results: list[RubricResult]) -> CulturePairStats:
 
 def build_leaderboard(models: list[str], settings: Settings) -> Leaderboard:
     slop_list = load_slop_list(settings.paths.slop_list)
+    culture_pair_ids = {
+        i.id for i in load_track3(settings.paths.track3_items) if i.subtype == "culture-pair"
+    }
     elo_ratings = load_elo(settings.paths.elo_file)
     length_specs: dict[str, str] = {}
     if settings.paths.track2_items.exists():
@@ -205,7 +216,7 @@ def build_leaderboard(models: list[str], settings: Settings) -> Leaderboard:
                 tracks=track_metrics,
                 completion=_completion_stats(generations, rubric_results),
                 judge_means=_per_judge_means(rubric_results, settings.judges),
-                culture_pair=_culture_pair_stats(rubric_results),
+                culture_pair=_culture_pair_stats(rubric_results, culture_pair_ids),
             )
         )
 

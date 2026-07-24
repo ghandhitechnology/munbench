@@ -238,7 +238,9 @@ async def _get_verdict(messages: list[dict[str, str]], judge_model: str, setting
     for attempt in range(settings.max_retries + 1):
         try:
             content = await providers.complete(
-                judge_model, messages, settings, json_mode=True, temperature=0.0, max_tokens=512
+                judge_model, messages, settings, json_mode=True, temperature=0.0, max_tokens=1600
+                # 1600, not a tight verdict-sized cap: judges with reasoning enabled by
+                # default burn part of the budget internally and truncate the JSON.
             )
             return parse_verdict(content)
         except Exception as e:  # noqa: BLE001
